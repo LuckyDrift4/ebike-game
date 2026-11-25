@@ -257,32 +257,6 @@ def build_steering(B):
     K.bm_box(B.bm(G, "screen"), Md @ Matrix.Translation((0, 0.002, 0.0112)), 0.074, 0.04, 0.0015)
     K.box_between(B.bm(G, "black"), cb + Vector((0, 0.0, 0.012)), dc - Vector((0, 0.006, 0.008)), 0.016, 0.012)
 
-    # headlight in front of the fork legs -----------------------------------------
-    fwd = -YF
-    hc = fa(268) + fwd * 0.05
-    Mp = Matrix((Vector((1, 0, 0)), ZF, fwd)).transposed().to_4x4()
-    Mp.translation = hc
-    shield = [(-0.066, 0.078), (0.066, 0.078), (0.078, 0.02), (0.07, -0.045), (0.04, -0.082), (-0.04, -0.082),
-              (-0.07, -0.045), (-0.078, 0.02)]
-    shield = [tuple(v) for v in K.catmull(shield, 3, closed=True)]
-    hole = K.circle2d(0, 0.008, 0.047, 40)
-    B.inflate(G, "black", [shield, hole], 0.006, 0.007, 0.006, frame=Mp,
-              fn=lambda co: co + YF * (2.4 * co.x * co.x))
-    Mh = Mp @ Matrix.Translation((0, 0.008, -0.03))
-    B.inflate(G, "black", [K.rounded_rect2d(0, 0, 0.11, 0.105, 0.03, n=6)], 0.008, 0.028, 0.02, frame=Mh)
-    Ml = K.axis_matrix(hc + fwd * 0.002 + ZF * 0.008, fwd)
-    # chrome bezel, reflector bowl, DRL ring, projector lens
-    K.bm_lathe(B.bm(G, "chrome"), Ml, [(-0.004, 0.047), (0.004, 0.048), (0.007, 0.044), (0.002, 0.042)], 48)
-    K.bm_lathe(B.bm(G, "chrome"), Ml, [(0.001, 0.042), (-0.012, 0.03), (-0.02, 0.012), (-0.021, 0.0)], 48,
-               closed=False)
-    K.bm_lathe(B.bm(G, "drl"), Ml, [(0.0, 0.0395), (0.0025, 0.0395), (0.0025, 0.0365), (0.0, 0.0365)], 48)
-    K.bm_lathe(B.bm(G, "black"), Ml, [(-0.012, 0.022), (0.0, 0.022), (0.001, 0.019), (-0.012, 0.019)], 32)
-    K.bm_lathe(B.bm(G, "glass"), Ml, [(0.001, 0.0185), (0.006, 0.014), (0.0085, 0.006), (0.009, 0.0)], 32,
-               closed=False)
-    K.bm_box(B.bm(G, "black"), Mp @ Matrix.Translation((0, 0.004, 0.072)), 0.12, 0.03, 0.004)    # visor
-    for s in (1, -1):
-        K.bm_tube(B.bm(G, "black"), hc + Vector((s * 0.05, 0.03, 0.0)), fa(272, s * (LEG_X - 0.02)), 0.006,
-                  segs=6)
     # front fender hung under the bottom clamp
     m = fa(292) - ZF * 0.03
     prof = [(0.21, -0.042), (0.20, -0.03), (0.08, -0.002), (0.0, 0.004), (-0.12, 0.0), (-0.26, -0.024),
