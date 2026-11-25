@@ -113,7 +113,7 @@ class _MatRecorder:
     def __init__(self):
         self.mats = {}
 
-    def material(self, key, rgb, metal=0.0, rough=0.5, coat=0.0, emit=0.0, spec=0.5):
+    def material(self, key, rgb, metal=0.0, rough=0.5, coat=0.0, emit=0.0, spec=0.5, **_render_only):
         self.mats[key] = dict(rgb=rgb, metal=metal, rough=rough, emit=emit)
 
 
