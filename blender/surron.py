@@ -94,6 +94,8 @@ def materials(B):
     B.material("lens", (0.92, 0.94, 1.0), rough=0.05, emit=2.0)
     B.material("redlight", (0.75, 0.02, 0.02), rough=0.2, emit=1.0)
     B.material("screen", (0.02, 0.05, 0.08), metal=0.2, rough=0.05)
+    B.material("glass", (0.35, 0.38, 0.42), metal=0.0, rough=0.02, emit=0.12)
+    B.material("drl", (0.85, 0.9, 1.0), rough=0.1, emit=0.35)
 
 
 # --------------------------------------------------------------------------- #
@@ -174,13 +176,19 @@ def build_steering(B):
             p = FRONT_AXLE + Vector((X + s * 0.017, 0.02, dz))
             K.bm_cyl(B.bm(G, "alu"), K.axis_matrix(p, (s, 0, 0)), 0.004, 0, 0.004, 6)
         K.bm_tube(B.bm(G, "gold"), fa(195, X), fa(201, X), 0.009, segs=12)       # rebound adjuster
+        for y in (214, 236, 270):                                                  # machined rings
+            K.bm_tube(B.bm(G, "rim"), fa(y, X), fa(y + 2.5, X), 0.0275, segs=24)
+        K.bm_tube(B.bm(G, "steel"), fa(364, X), fa(369, X), 0.0272, segs=24)      # seal holder
+        for dy in (-0.012, 0.012):                                                 # caliper mount ears
+            e = fa(458, X) + YF * 0.028 + ZF * dy
+            K.bm_cyl(B.bm(G, "black"), K.axis_matrix(e, (1, 0, 0)), 0.007, -0.006, 0.006, 12)
         K.bm_box(B.bm(G, "black"), fork_frame(fa(400, X + s * 0.027) - YF * 0.006), 0.008, 0.018, 0.02)
         for y in (248, 300):  # clamp pinch bolts, front face
             K.bolt(B.bm(G, "steel"), fa(y - (26 if y == 248 else 8), X) - YF * 0.03, -YF, r=0.004)
     # triple clamps (black anodised)
     clamp = K.rounded_rect2d(0, STEM_OFF / 2, 2 * LEG_X + 0.072, STEM_OFF + 0.074, 0.034, n=5)
-    B.slab_frame(G, "rim", [clamp], 0.026, fork_frame(fa(222)), bevel=0.005)
-    B.slab_frame(G, "rim", [clamp], 0.040, fork_frame(fa(292)), bevel=0.006)
+    B.inflate(G, "rim", [clamp], 0.006, 0.013, 0.004, frame=fork_frame(fa(222)), pocket=(0.012, 0.003, 0.005))
+    B.inflate(G, "rim", [clamp], 0.006, 0.02, 0.005, frame=fork_frame(fa(292)))
     for y in (222, 292):
         for s in (1, -1):  # clamp bolts
             p = fa(y, s * (LEG_X + 0.03)) + YF * 0.008
@@ -254,16 +262,24 @@ def build_steering(B):
     hc = fa(268) + fwd * 0.05
     Mp = Matrix((Vector((1, 0, 0)), ZF, fwd)).transposed().to_4x4()
     Mp.translation = hc
-    shield = [(-0.068, 0.075), (0.068, 0.075), (0.078, 0.01), (0.06, -0.06), (0.02, -0.085), (-0.02, -0.085),
-              (-0.06, -0.06), (-0.078, 0.01)]
-    B.inflate(G, "black", [shield], 0.007, 0.006, 0.006, frame=Mp,
+    shield = [(-0.066, 0.078), (0.066, 0.078), (0.078, 0.02), (0.07, -0.045), (0.04, -0.082), (-0.04, -0.082),
+              (-0.07, -0.045), (-0.078, 0.02)]
+    shield = [tuple(v) for v in K.catmull(shield, 3, closed=True)]
+    hole = K.circle2d(0, 0.008, 0.047, 40)
+    B.inflate(G, "black", [shield, hole], 0.006, 0.007, 0.006, frame=Mp,
               fn=lambda co: co + YF * (2.4 * co.x * co.x))
-    K.bm_box(B.bm(G, "black"), Mp @ Matrix.Translation((0, -0.005, -0.03)), 0.11, 0.1, 0.05)   # housing
-    Ml = K.axis_matrix(hc + fwd * 0.004 + ZF * 0.012, fwd)
-    K.bm_lathe(B.bm(G, "chrome"), Ml, [(0.0, 0.040), (0.006, 0.041), (0.008, 0.035), (0.003, 0.033)], 32)
-    K.bm_lathe(B.bm(G, "lens"), Ml, [(0.003, 0.0335), (0.009, 0.028), (0.012, 0.015), (0.013, 0.0)], 32,
+    Mh = Mp @ Matrix.Translation((0, 0.008, -0.03))
+    B.inflate(G, "black", [K.rounded_rect2d(0, 0, 0.11, 0.105, 0.03, n=6)], 0.008, 0.028, 0.02, frame=Mh)
+    Ml = K.axis_matrix(hc + fwd * 0.002 + ZF * 0.008, fwd)
+    # chrome bezel, reflector bowl, DRL ring, projector lens
+    K.bm_lathe(B.bm(G, "chrome"), Ml, [(-0.004, 0.047), (0.004, 0.048), (0.007, 0.044), (0.002, 0.042)], 48)
+    K.bm_lathe(B.bm(G, "chrome"), Ml, [(0.001, 0.042), (-0.012, 0.03), (-0.02, 0.012), (-0.021, 0.0)], 48,
                closed=False)
-    K.bm_box(B.bm(G, "lens"), Mp @ Matrix.Translation((0, -0.048, 0.008)), 0.09, 0.008, 0.004)    # DRL strip
+    K.bm_lathe(B.bm(G, "drl"), Ml, [(0.0, 0.0395), (0.0025, 0.0395), (0.0025, 0.0365), (0.0, 0.0365)], 48)
+    K.bm_lathe(B.bm(G, "black"), Ml, [(-0.012, 0.022), (0.0, 0.022), (0.001, 0.019), (-0.012, 0.019)], 32)
+    K.bm_lathe(B.bm(G, "glass"), Ml, [(0.001, 0.0185), (0.006, 0.014), (0.0085, 0.006), (0.009, 0.0)], 32,
+               closed=False)
+    K.bm_box(B.bm(G, "black"), Mp @ Matrix.Translation((0, 0.004, 0.072)), 0.12, 0.03, 0.004)    # visor
     for s in (1, -1):
         K.bm_tube(B.bm(G, "black"), hc + Vector((s * 0.05, 0.03, 0.0)), fa(272, s * (LEG_X - 0.02)), 0.006,
                   segs=6)
@@ -317,23 +333,21 @@ def build_body(B):
     # head stock + head tube
     K.bm_tube(B.bm(G, "frame"), steer(226), steer(292), 0.029, segs=20)
     B.inflate(G, "frame", [L([(250, 238), (272, 240), (292, 254), (300, 280), (296, 304), (270, 306),
-                              (252, 296)])], 0.01, 0.075, 0.012)
+                              (252, 296)])], 0.007, 0.075, 0.008, pocket=(0.012, 0.007, 0.008))
 
     # forged main spars (pair), running from head stock to the swingarm pivot plates
     spar = [(256, 236), (275, 243), (300, 262), (330, 284), (360, 306), (390, 334), (420, 366), (440, 390),
             (448, 406), (447, 428), (437, 442), (420, 444), (408, 432), (395, 392), (370, 368), (340, 342),
             (310, 318), (285, 300), (264, 292), (254, 282), (252, 250)]
-    B.inflate_pair(G, "frame", [L(spar)], 0.009, 0.019, 0.006, 0.088)
-    # forged pocket along the spar
-    pocket = [(286, 268), (330, 296), (392, 350), (420, 386), (412, 392), (384, 362), (326, 312), (282, 282)]
-    B.inflate_pair(G, "frame", [L(pocket)], 0.008, 0.003, 0.003, 0.1065)
+    B.inflate_pair(G, "frame", [L(spar)], 0.007, 0.02, 0.004, 0.088, pocket=(0.011, 0.007, 0.008))
     # lower cradle rails down the front of the battery and under the motor
     front = [tuple(v) for v in K.catmull([(262, 292), (282, 299), (296, 318), (301, 360), (304, 412)], 4)]
-    B.inflate_pair(G, "frame", [L(K.offset_polyline2d(front, 18))], 0.008, 0.013, 0.005, 0.074)
+    B.inflate_pair(G, "frame", [L(K.offset_polyline2d(front, 18))], 0.006, 0.014, 0.004, 0.074,
+                   pocket=(0.007, 0.004, 0.006))
     cradle = [(296, 404), (314, 403), (332, 409), (352, 413), (400, 415), (430, 417), (448, 430), (448, 448),
               (437, 464), (420, 476), (395, 483), (350, 483), (326, 476), (311, 461), (301, 440)]
     hole = K.circle2d(*P(373, 442), 27 * S, 40)
-    B.inflate_pair(G, "frame", [L(cradle), hole], 0.007, 0.011, 0.005, 0.074)
+    B.inflate_pair(G, "frame", [L(cradle), hole], 0.006, 0.012, 0.004, 0.074, pocket=(0.009, 0.005, 0.006))
     cross = [tuple(v) for v in K.catmull([(306, 398), (340, 402), (380, 406), (420, 414)], 4)]
     B.inflate_pair(G, "frame", [L(K.offset_polyline2d(cross, 9))], 0.007, 0.01, 0.005, 0.077)
     # cooling grille on each side at the front of the battery
@@ -367,7 +381,12 @@ def build_body(B):
     batt = [(296, 300), (388, 300), (405, 330), (430, 372), (436, 400), (432, 410), (304, 410), (298, 360)]
     B.inflate(G, "battery", [L(batt)], 0.016, 0.075, 0.015)
     cover = [(300, 303), (386, 303), (402, 331), (426, 372), (431, 398), (306, 406), (301, 360)]
-    B.inflate_pair(G, "panel", [L(cover)], 0.012, 0.0035, 0.0035, 0.078)
+    B.inflate_pair(G, "panel", [L(cover)], 0.007, 0.005, 0.0025, 0.077, pocket=(0.008, 0.003, 0.004))
+    for s_ in (1, -1):  # moulded vertical ribs on the upper cover
+        for k in range(7):
+            x = 312 + k * 4.2
+            K.box_between(B.bm(G, "panel"), P3(x, 312, s_ * 0.0795), P3(x + 1.0, 334, s_ * 0.0795), 0.003, 0.0035,
+                          up=(1, 0, 0))
     gfx = [[(305, 334), (322, 334), (333, 368), (313, 368)]]
     for k, y0 in enumerate([352, 361, 370, 379, 388]):
         x0 = 337 + k * 2
@@ -376,7 +395,7 @@ def build_body(B):
     gfx.append([(392, 360), (418, 384), (414, 388), (388, 364)])
     gfx.append([(388, 372), (420, 398), (414, 401), (384, 376)])
     for g in gfx:
-        B.slab_pair(G, "graphic", [L(g)], 0.0012, 0.0815)
+        B.slab_pair(G, "graphic", [L(g)], 0.0008, 0.0794)
 
     # top cover over the controller
     top = [(280, 262), (372, 262), (384, 270), (388, 290), (380, 302), (296, 302), (282, 288)]
@@ -455,9 +474,13 @@ def build_body(B):
     K.bm_tube(B.bm(G, "frame"), P3(505, 293, -0.062), P3(505, 293, 0.062), 0.01, segs=10)
 
     # seat + integrated rear fender (one black piece), tapering towards the tail
-    seat = [(386, 284), (394, 279), (420, 279), (450, 280), (480, 278), (510, 272), (535, 268), (560, 264),
-            (580, 261), (581, 264), (560, 269), (540, 274), (520, 282), (500, 289), (470, 297), (440, 300),
-            (405, 301), (388, 297), (383, 290)]
+    seat = [(385, 287), (391, 280), (400, 278), (420, 279), (440, 280), (460, 278), (480, 274), (500, 271),
+            (520, 267), (536, 265), (540, 268), (537, 273), (520, 279), (500, 285), (480, 290), (460, 295),
+            (440, 298), (420, 298), (400, 297), (389, 294)]
+    pan = [(390, 293), (420, 296), (440, 296), (460, 293), (480, 288), (500, 283), (520, 277), (537, 271),
+           (539, 275), (520, 282), (500, 288), (480, 293), (460, 298), (440, 302), (420, 302), (400, 301),
+           (391, 298)]
+    rear = [(534, 271), (546, 268), (562, 265), (578, 261), (582, 263), (572, 267), (556, 271), (540, 276)]
     W = 0.23
 
     def seat_hw(u, v):
@@ -469,12 +492,20 @@ def build_body(B):
         else:
             w = K.lerp(0.13, 0.06, min((x - 545) / 36, 1.0))
         return w / 2
-    B.inflate(G, "seat", [L(seat)], 0.009, seat_hw, 0.04)
+    B.inflate(G, "seat", [L(seat)], 0.008, seat_hw, 0.045, fn=lambda co: co + Vector((0, 0, 0.004 * (1 - min((co.x / 0.11) ** 2, 1)))))
+    B.inflate(G, "black", [L(pan)], 0.006, lambda u, v: seat_hw(u, v) - 0.006, 0.006)
+
+    def rear_hw(u, v):
+        x = u / S + MIDX
+        return K.lerp(0.055, 0.03, min(max((x - 534) / 48, 0), 1))
+    B.inflate(G, "black", [L(rear)], 0.005, rear_hw, 0.006, fn=lambda co: co - Vector((0, 0, 0.6 * co.x * co.x)))
+    for s_ in (1, -1):  # seat bolts
+        K.bolt(B.bm(G, "steel"), P3(470, 296, s_ * 0.104), (s_, 0, 0), r=0.004)
 
     # tail light + reflector bracket
     K.bm_sweep(B.bm(G, "black"), [P3(447, 296), P3(449, 310), P3(451, 322)], 0.005, segs=6)
     K.bm_box(B.bm(G, "redlight"), Matrix.Translation(P3(451, 318)), 0.05, 0.008, 0.025)
-    th = P3(566, 271) - Vector((0, 0, 0.006))
+    th = P3(566, 272) - Vector((0, 0, 0.004))
     K.bm_box(B.bm(G, "black"), Matrix.Translation(th), 0.045, 0.03, 0.016, top=(0.9, 0.9))
     K.bm_box(B.bm(G, "redlight"), Matrix.Translation(th + Vector((0, 0.016, 0.0))), 0.038, 0.003, 0.01)
 
@@ -505,7 +536,13 @@ def build_swingarm(B, rp_front, rp_rear):
     B.pivot(G, SWING_PIVOT)
     arm = [(418, 410), (436, 398), (462, 394), (486, 402), (530, 424), (575, 446), (596, 456), (602, 468),
            (596, 480), (580, 484), (560, 474), (520, 456), (480, 442), (450, 436), (428, 436), (416, 426)]
-    B.inflate_pair(G, "frame", [L(arm)], 0.008, 0.014, 0.006, 0.080)
+    B.inflate_pair(G, "frame", [L(arm)], 0.006, 0.015, 0.004, 0.080, pocket=(0.008, 0.006, 0.006))
+    # shock linkage: rocker plates + dog-bone up to the shock clevis
+    for s in (1, -1):
+        B.inflate(G, "frame", [K.stadium2d(P(458, 404), P(468, 380), 0.013, 8)], 0.004, 0.004, 0.003, c=s * 0.03)
+        K.bolt(B.bm(G, "steel"), P3(458, 404, s * 0.034), (s, 0, 0), r=0.005)
+        K.bolt(B.bm(G, "steel"), P3(468, 380, s * 0.034), (s, 0, 0), r=0.005)
+    K.box_between(B.bm(G, "frame"), P3(468, 380), P3(454, 398), 0.03, 0.016, up=(1, 0, 0))
     B.inflate(G, "frame", [L([(436, 400), (462, 396), (468, 424), (444, 432)])], 0.008, 0.08, 0.007)
     K.bm_cyl(B.bm(G, "alu"), K.axis_matrix(SWING_PIVOT, (1, 0, 0)), 0.021, -0.1, 0.1, 16)
     for s in (1, -1):
@@ -516,9 +553,9 @@ def build_swingarm(B, rp_front, rp_rear):
     B.slab_pair(G, "frame", [K.stadium2d(P(452, 400), P(452, 414), 0.016)], 0.006, 0.022)
     # stripe graphics on the left arm
     for k in range(3):
-        B.slab(G, "graphic", [L(K.offset_polyline2d([(447, 405 + 5 * k), (505, 430 + 5 * k)], 2.0))],
-               0.0012, x=0.0938)
-    B.slab(G, "graphic", [L([(528, 446), (560, 458), (557, 466), (525, 454)])], 0.0012, x=0.0938)
+        B.slab(G, "graphic", [L(K.offset_polyline2d([(447, 404 + 5 * k), (505, 429 + 5 * k)], 1.8))],
+               0.0008, x=0.0952)
+    B.slab(G, "graphic", [L([(528, 446), (560, 458), (557, 466), (525, 454)])], 0.0008, x=0.0952)
     # chain slider
     B.inflate(G, "black", [L([(440, 398), (470, 397), (500, 410), (496, 414), (468, 403), (440, 404)])],
               0.006, 0.015, 0.005, c=0.08)

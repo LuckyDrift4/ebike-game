@@ -388,13 +388,15 @@ def _inside(P, loop):
     return res
 
 
-def inflate_mesh(loops, h, t_fn, r, c_fn=None, frame=None, rings=3, fn=None):
+def inflate_mesh(loops, h, t_fn, r, c_fn=None, frame=None, rings=3, fn=None, pocket=None, extra=()):
     """Smooth solid whose outline (silhouette along the w axis) is `loops[0]`
     (later loops are holes). Points are (u, v); the solid is built along w:
       half-thickness t_fn(u, v), centre c_fn(u, v), edge radius r.
     Edges are rounded with a quarter circle of radius min(r, t); if r >= t the
     body is a closed pillow, otherwise a flat band joins the two halves.
-    Coordinates map to world as (X=w, Y=u, Z=v), or through `frame` as (u, v, w)."""
+    Coordinates map to world as (X=w, Y=u, Z=v), or through `frame` as (u, v, w).
+    pocket=(rim, depth, ramp): forged-style recess: the faces drop by `depth`
+    starting `rim` in from the outline, over a draft of width `ramp`."""
     c_fn = c_fn or (lambda u, v: 0.0)
     bl = [_subdivide_loop(l, h) for l in loops]
     A = np.concatenate(bl)
@@ -407,9 +409,15 @@ def inflate_mesh(loops, h, t_fn, r, c_fn=None, frame=None, rings=3, fn=None):
         return m
 
     pts = [A]
-    # rings of points inset from the boundary to resolve the rounded edge
-    for k in range(1, rings + 1):
-        dk = r * (1 - math.cos((math.pi / 2) * k / (rings + 1)))
+    # rings of points inset from the boundary to resolve the rounded edge (and pocket walls)
+    dists = [r * (1 - math.cos((math.pi / 2) * k / (rings + 1))) for k in range(1, rings + 1)]
+    if pocket:
+        rim, depth, ramp = pocket
+        dists += [rim, rim + ramp * 0.33, rim + ramp * 0.66, rim + ramp]
+    dists += list(extra)
+    for dk in dists:
+        if dk < 1e-6:
+            continue
         for l in bl:
             tng = np.roll(l, -1, 0) - np.roll(l, 1, 0)
             tng /= np.linalg.norm(tng, axis=1)[:, None] + 1e-12
@@ -421,7 +429,7 @@ def inflate_mesh(loops, h, t_fn, r, c_fn=None, frame=None, rings=3, fn=None):
                 ok = material(C)
                 if ok.any():
                     d = _seg_dist(C[ok], A, B)
-                    good = np.abs(d - dk) < 0.3 * dk
+                    good = np.abs(d - dk) < max(0.3 * dk, 0.0008) if dk < 0.01 else np.abs(d - dk) < 0.2 * h
                     pts.append(C[ok][good])
     # interior hex grid
     mn, mx = bl[0].min(0), bl[0].max(0)
@@ -459,6 +467,9 @@ def inflate_mesh(loops, h, t_fn, r, c_fn=None, frame=None, rings=3, fn=None):
             off = t
         else:
             off = t - rr + math.sqrt(max(rr * rr - (rr - d[i]) ** 2, 0.0))
+        if pocket and d[i] > rim:
+            x = min((d[i] - rim) / ramp, 1.0)
+            off -= depth * x * x * (3 - 2 * x)
         c = c_fn(u, v)
         pf = (u, v, c + off)
         pb = (u, v, c - off)
@@ -712,20 +723,20 @@ class Builder:
             f = None if fn is None else (lambda co, s=s: fn(co, s))
             self.slab(group, mat, loops, thick, bevel, res, s * x, f)
 
-    def inflate(self, group, mat, loops, h, t, r, c=0.0, frame=None, rings=3, fn=None):
+    def inflate(self, group, mat, loops, h, t, r, c=0.0, frame=None, rings=3, fn=None, pocket=None, extra=()):
         """Rounded solid from a side outline. t / c may be numbers or f(u, v)."""
         t_fn = t if callable(t) else (lambda u, v, t=t: t)
         c_fn = c if callable(c) else (lambda u, v, c=c: c)
-        self.add_mesh(group, mat, inflate_mesh(loops, h, t_fn, r, c_fn, frame, rings, fn))
+        self.add_mesh(group, mat, inflate_mesh(loops, h, t_fn, r, c_fn, frame, rings, fn, pocket, extra))
 
-    def inflate_pair(self, group, mat, loops, h, t, r, x, rings=3, fn=None, c=None):
+    def inflate_pair(self, group, mat, loops, h, t, r, x, rings=3, fn=None, c=None, pocket=None, extra=()):
         """Mirrored pair at +x / -x. c(u, v, side) may move the centre per side."""
         for s in (1, -1):
             if c is None:
                 cc = s * x
             else:
                 cc = (lambda u, v, s=s: c(u, v, s))
-            self.inflate(group, mat, loops, h, t, r, cc, None, rings, fn)
+            self.inflate(group, mat, loops, h, t, r, cc, None, rings, fn, pocket, extra)
 
     def pivot(self, group, p):
         self.pivots[group] = Vector(p)
@@ -816,7 +827,7 @@ def build_wheel(B, group, center, *, rim_d, tire_h, tire_w, rim_w,
 
     # --- knobs
     r_out = rim_r + tire_h
-    kh = tire_h * 0.175
+    kh = tire_h * 0.2
     rows = int(round(TAU * r_out / knob_pitch))
     rng = random.Random(int(center.y * 1000) + 7)
     hw = tire_w / 2
@@ -824,7 +835,8 @@ def build_wheel(B, group, center, *, rim_d, tire_h, tire_w, rim_w,
         th = TAU * i / rows
         knobs = []
         if i % 2 == 0:
-            knobs.append((0.0, 0.020, tire_w * 0.36, 0.0))                 # centre block
+            knobs.append((-tire_w * 0.1, 0.020, tire_w * 0.17, 0.0))      # siped centre block (two halves)
+            knobs.append((tire_w * 0.1, 0.020, tire_w * 0.17, 0.0))
             knobs.append((0.80 * hw, 0.017, tire_w * 0.20, 0.55))          # shoulders
             knobs.append((-0.80 * hw, 0.017, tire_w * 0.20, -0.55))
         else:
@@ -903,9 +915,25 @@ def build_wheel(B, group, center, *, rim_d, tire_h, tire_w, rim_w,
         hx = o + side * (hw2 - 0.003)
         ph = c + Vector((hx, (flange_r - 0.006) * math.cos(th_h), (flange_r - 0.006) * math.sin(th_h)))
         pr = c + Vector((side * 0.004, (rim_r - 0.017) * math.cos(th_r), (rim_r - 0.017) * math.sin(th_r)))
-        bm_tube(bm_s, ph, pr, 0.0019, segs=5)
+        bm_tube(bm_s, ph, pr, 0.002, segs=6)
         d = (pr - ph).normalized()
         bm_tube(bm_s, pr - d * 0.004, pr + d * 0.012, 0.0032, segs=6)
+        # J-bend head at the hub flange
+        bm_cyl(bm_s, axis_matrix(ph, (side, 0, 0)), 0.0034, -0.0015, 0.0025, segs=8)
+        # rim eyelet around the nipple
+        er = rim_r - 0.0185
+        pe = c + Vector((side * 0.004, er * math.cos(th_r), er * math.sin(th_r)))
+        bm_cyl(bm_s, axis_matrix(pe, (0, math.cos(th_r), math.sin(th_r))), 0.0052, -0.001, 0.0012, segs=10)
+
+    # --- hub bearing seals + rim lock
+    bm = B.bm(group, mats.get("rim", "rim"))
+    for sgn in (1, -1):
+        bm_cyl(bm, M, 0.019, o + sgn * (hw2 + 0.006), o + sgn * (hw2 + 0.009), segs=24)
+    a = math.radians(115)
+    p = c + Vector((0, (rim_r - 0.02) * math.cos(a), (rim_r - 0.02) * math.sin(a)))
+    bm_box(bm, axis_matrix(p, (0, math.cos(a), math.sin(a))), 0.026, 0.02, 0.012)
+    bm_cyl(bm, axis_matrix(p - Vector((0, math.cos(a), math.sin(a))) * 0.006, (0, -math.cos(a), -math.sin(a))),
+           0.0055, 0, 0.012, segs=6)
 
     # --- axle with nuts
     bm = B.bm(group, mats.get("axle", "axle"))
