@@ -29,8 +29,12 @@ Brand logos and names are intentionally left off, because Roblox moderates
 trademarked logos.
 
 Surface textures in the renders (grippy seat, rubber, brushed aluminium,
-paint) are procedural Blender shaders. They don't carry over into Roblox,
-where parts get flat colours from `BikeColors.lua`.
+paint, dust and edge highlights) are procedural Blender shaders. They don't
+carry over into Roblox, where parts get flat colours from `BikeColors.lua`.
+
+The preview renders place the bike in a real photographed environment, a
+public-domain HDRI of a Venetian square from Poly Haven
+(`blender/assets/`, see its README), with a shadow-catcher floor.
 
 ## How the models are organised
 

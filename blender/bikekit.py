@@ -15,6 +15,7 @@ with its origin at a useful pivot (axle, steering head, swingarm pivot).
 """
 
 import math
+import random
 
 import bpy  # noqa: F401  (must be imported before bmesh when using the bpy module)
 import bmesh
@@ -589,6 +590,60 @@ def _split_bmesh(bm, max_tris):
     return out
 
 
+def _edge_bevel(nt, bsdf, radius):
+    """Render-time rounded edge highlights (Cycles Bevel node), chained before any bump."""
+    bev = nt.nodes.new("ShaderNodeBevel")
+    bev.samples = 6
+    bev.inputs["Radius"].default_value = radius
+    link = bsdf.inputs["Normal"].links[0] if bsdf.inputs["Normal"].is_linked else None
+    if link and link.from_node.bl_idname == "ShaderNodeBump":
+        nt.links.new(bev.outputs["Normal"], link.from_node.inputs["Normal"])
+    else:
+        nt.links.new(bev.outputs["Normal"], bsdf.inputs["Normal"])
+
+
+def _dust(nt, bsdf, amount):
+    """Dusty, scuffed lower parts: more dirt close to the ground, broken up by noise."""
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    sep = nt.nodes.new("ShaderNodeSeparateXYZ")
+    hgt = nt.nodes.new("ShaderNodeMapRange")
+    hgt.inputs["From Min"].default_value = 0.05
+    hgt.inputs["From Max"].default_value = 0.55
+    hgt.inputs["To Min"].default_value = 1.0
+    hgt.inputs["To Max"].default_value = 0.0
+    nz = nt.nodes.new("ShaderNodeTexNoise")
+    nz.inputs["Scale"].default_value = 9.0
+    nz.inputs["Detail"].default_value = 10.0
+    ramp = nt.nodes.new("ShaderNodeMapRange")
+    ramp.inputs["From Min"].default_value = 0.42
+    ramp.inputs["From Max"].default_value = 0.68
+    mul = nt.nodes.new("ShaderNodeMath")
+    mul.operation = 'MULTIPLY'
+    mul2 = nt.nodes.new("ShaderNodeMath")
+    mul2.operation = 'MULTIPLY'
+    mul2.inputs[1].default_value = amount
+    nt.links.new(geo.outputs["Position"], sep.inputs[0])
+    nt.links.new(sep.outputs["Z"], hgt.inputs["Value"])
+    nt.links.new(geo.outputs["Position"], nz.inputs["Vector"])
+    nt.links.new(nz.outputs["Fac"], ramp.inputs["Value"])
+    nt.links.new(hgt.outputs["Result"], mul.inputs[0])
+    nt.links.new(ramp.outputs["Result"], mul.inputs[1])
+    nt.links.new(mul.outputs[0], mul2.inputs[0])
+    base = bsdf.inputs["Base Color"].default_value[:]
+    mixc = nt.nodes.new("ShaderNodeMix")
+    mixc.data_type = 'RGBA'
+    mixc.inputs["A"].default_value = base
+    mixc.inputs["B"].default_value = (0.30, 0.27, 0.23, 1.0)
+    nt.links.new(mul2.outputs[0], mixc.inputs["Factor"])
+    nt.links.new(mixc.outputs["Result"], bsdf.inputs["Base Color"])
+    if not bsdf.inputs["Roughness"].is_linked:
+        mr = nt.nodes.new("ShaderNodeMapRange")
+        mr.inputs["To Min"].default_value = bsdf.inputs["Roughness"].default_value
+        mr.inputs["To Max"].default_value = 0.95
+        nt.links.new(mul2.outputs[0], mr.inputs["Value"])
+        nt.links.new(mr.outputs["Result"], bsdf.inputs["Roughness"])
+
+
 class Builder:
     def __init__(self, name):
         self.name = name
@@ -601,7 +656,7 @@ class Builder:
 
     # materials ---------------------------------------------------------------
     def material(self, key, rgb, metal=0.0, rough=0.5, coat=0.0, emit=0.0, spec=0.5, bump=None,
-                 aniso=0.0):
+                 aniso=0.0, bevel=0.0015, dirt=0.0):
         name = f"{self.name}_{key}"
         m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
         m.diffuse_color = (*rgb, 1.0)
@@ -624,6 +679,10 @@ class Builder:
             b.inputs["Anisotropic"].default_value = aniso
         if bump:
             _surface_texture(nt, b, *bump)
+        if bevel and emit == 0:
+            _edge_bevel(nt, b, bevel)
+        if dirt:
+            _dust(nt, b, dirt)
         self.mats[key] = m
         return m
 
@@ -693,6 +752,10 @@ class Builder:
                 me.materials.append(self.mats[mat])
                 ob = bpy.data.objects.new(name, me)
                 ob.location = pv
+                wn = ob.modifiers.new("WeightedNormal", 'WEIGHTED_NORMAL')
+                wn.mode = 'FACE_AREA'
+                wn.weight = 80
+                wn.keep_sharp = True
                 ob["group"] = group
                 ob["part_material"] = mat
                 self.coll.objects.link(ob)
@@ -755,6 +818,7 @@ def build_wheel(B, group, center, *, rim_d, tire_h, tire_w, rim_w,
     r_out = rim_r + tire_h
     kh = tire_h * 0.175
     rows = int(round(TAU * r_out / knob_pitch))
+    rng = random.Random(int(center.y * 1000) + 7)
     hw = tire_w / 2
     for i in range(rows):
         th = TAU * i / rows
@@ -776,11 +840,36 @@ def build_wheel(B, group, center, *, rim_d, tire_h, tire_w, rim_w,
             ax = Vector((1, 0, 0))
             up = (radial * math.cos(tilt) + ax * math.sin(tilt)).normalized()
             side = tang.cross(up).normalized()
+            # moulded knobs are not perfectly regular: small twist and size variation
+            tw = rng.uniform(-0.07, 0.07)
+            tang, side = (tang * math.cos(tw) + side * math.sin(tw)), (side * math.cos(tw) - tang * math.sin(tw))
+            tl *= rng.uniform(0.93, 1.07)
+            aw *= rng.uniform(0.94, 1.06)
             base = c + ax * a + radial * rr
             Mk = Matrix((side, tang, up)).transposed().to_4x4()
             Mk.translation = base
-            h_k = kh * (0.85 if abs(tilt) > 0.9 else 1.0)
+            h_k = kh * (0.85 if abs(tilt) > 0.9 else 1.0) * rng.uniform(0.94, 1.04)
             bm_knob(bm, Mk, aw, tl, h_k + 0.002)
+
+    # sidewall details: rim-protector rib and a raised band where the lettering sits
+    for sgn in (1, -1):
+        a0 = sgn * (0.66 * hw)
+        bm_lathe(bm, M, [(a0, rim_r + 0.006), (a0 + sgn * 0.006, rim_r + 0.01), (a0 + sgn * 0.004, rim_r + 0.016),
+                         (a0 - sgn * 0.002, rim_r + 0.014)], segs=segs, closed=True)
+        for k in range(36):  # lettering blocks (generic, no text)
+            t0 = TAU * k / 36 + 0.05
+            if k % 9 in (0, 8):
+                continue
+            ln = 0.012 + 0.006 * ((k * 7) % 3)
+            for j in range(2 if k % 2 else 1):
+                tt = t0 + j * 0.03
+                rad = Vector((0, math.cos(tt), math.sin(tt)))
+                tg = Vector((0, -math.sin(tt), math.cos(tt)))
+                ar = sgn * (0.97 * hw)
+                pos = c + Vector((ar, 0, 0)) + rad * (rim_r + 0.45 * tire_h)
+                Mk = Matrix((tg, rad, Vector((sgn, 0, 0)))).transposed().to_4x4()
+                Mk.translation = pos
+                bm_box(bm, Mk, ln, 0.008, 0.0016, base_z=0.0)
 
     # --- rim (U channel, closed profile)
     bm = B.bm(group, mats.get("rim", "rim"))
@@ -1157,6 +1246,44 @@ def setup_outdoor(samples=96, sun_elev=38.0, sun_rot=-40.0):
     me.materials.append(m)
 
 
+def setup_hdri(path, rot_deg=0.0, strength=1.0, samples=128, exposure=0.0):
+    """Photographic backdrop: an HDR environment lights the bike and forms the
+    background; an invisible shadow-catcher floor grounds it with real shadows."""
+    sc = bpy.context.scene
+    sc.render.engine = 'CYCLES'
+    sc.cycles.device = 'CPU'
+    sc.cycles.samples = samples
+    sc.cycles.use_denoising = True
+    sc.view_settings.view_transform = 'AgX'
+    sc.view_settings.look = 'AgX - Medium High Contrast'
+    sc.view_settings.exposure = exposure
+    w = bpy.data.worlds.new("HDRI")
+    sc.world = w
+    nt = w.node_tree
+    if nt is None:
+        w.use_nodes = True
+        nt = w.node_tree
+    bg = nt.nodes.get("Background")
+    env = nt.nodes.new("ShaderNodeTexEnvironment")
+    env.image = bpy.data.images.load(path, check_existing=True)
+    tc = nt.nodes.new("ShaderNodeTexCoord")
+    mp = nt.nodes.new("ShaderNodeMapping")
+    mp.inputs["Rotation"].default_value = (0, 0, math.radians(rot_deg))
+    mp.name = "HDRI_Rotation"
+    nt.links.new(tc.outputs["Generated"], mp.inputs["Vector"])
+    nt.links.new(mp.outputs["Vector"], env.inputs["Vector"])
+    nt.links.new(env.outputs["Color"], bg.inputs[0])
+    bg.inputs[1].default_value = strength
+    me = bpy.data.meshes.new("ground")
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=20)
+    bm.to_mesh(me)
+    bm.free()
+    g = bpy.data.objects.new("Ground", me)
+    sc.collection.objects.link(g)
+    g.is_shadow_catcher = True
+
+
 def camera(name, loc, target, lens=50, ortho=None, fstop=None):
     cd = bpy.data.cameras.new(name)
     if ortho:
@@ -1174,6 +1301,18 @@ def camera(name, loc, target, lens=50, ortho=None, fstop=None):
     d = Vector(target) - Vector(loc)
     ob.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
     return ob
+
+
+def aim_hdri(cam, base_rot_deg, base_view_deg=138.9):
+    """Rotate the HDRI so a camera sees the same part of the backdrop that a camera
+    looking along azimuth base_view_deg sees at base_rot_deg (seen = azimuth + rotation)."""
+    w = bpy.context.scene.world
+    if not w or not w.node_tree or "HDRI_Rotation" not in w.node_tree.nodes:
+        return
+    d = cam.rotation_euler.to_matrix() @ Vector((0, 0, -1))
+    az = math.degrees(math.atan2(d.y, d.x))
+    w.node_tree.nodes["HDRI_Rotation"].inputs["Rotation"].default_value = \
+        (0, 0, math.radians(base_rot_deg + base_view_deg - az))
 
 
 def render(cam, path, res=None):

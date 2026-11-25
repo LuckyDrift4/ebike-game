@@ -26,6 +26,7 @@ import importlib  # noqa: E402
 import bikekit as K  # noqa: E402
 
 BIKES = ["surron", "varg"]
+HDRI_ROT = 200.0   # backdrop rotation that puts the sunny square behind the hero camera
 
 
 def parse(argv):
@@ -58,15 +59,21 @@ def build_one(name, opts):
                  fbx_path=os.path.join(ROOT, "models", f"{mod.NAME}.fbx"),
                  glb_path=os.path.join(ROOT, "models", f"{mod.NAME}.glb"))
 
-    # outdoor scene + cameras (kept in the .blend so it can be re-rendered)
-    K.setup_outdoor(samples=opts["samples"])
+    # photographic scene: HDR backdrop + shadow catcher (kept in the .blend for re-rendering)
+    hdri = os.path.join(HERE, "assets", "san_giuseppe_bridge_2k.hdr")
+    if os.path.exists(hdri):
+        K.setup_hdri(hdri, HDRI_ROT, 1.0, samples=opts["samples"])
+    else:
+        K.setup_outdoor(samples=opts["samples"])
     k = 1.0 if mod.NAME == "SurRon" else 1.12   # bigger bike -> step back a little
     tgt = Vector((0, 0.0, 0.52 * k))
     side = mod.REF["camera_side"]
     cams = {
-        "hero": K.camera("Cam_Hero", (2.55 * k, -2.25 * k, 0.85), tgt, lens=40, fstop=5.6),
-        "front34": K.camera("Cam_Front34", (-2.45 * k, -2.4 * k, 0.95), tgt, lens=40, fstop=5.6),
-        "rear34": K.camera("Cam_Rear34", (2.2 * k, 2.7 * k, 1.0), tgt, lens=40, fstop=5.6),
+        "hero": K.camera("Cam_Hero", (2.35 * k, -2.05 * k, 0.9), tgt, lens=40, fstop=4.0),
+        "front34": K.camera("Cam_Front34", (-1.95 * k, -2.15 * k, 1.05), tgt, lens=35, fstop=4.0),
+        "rear34": K.camera("Cam_Rear34", (2.25 * k, 2.5 * k, 0.78), tgt, lens=38, fstop=4.0),
+        "detail": K.camera("Cam_Detail", (1.25 * k, -0.25 * k, 0.75), Vector((0, 0.05, 0.5 * k)), lens=40,
+                           fstop=2.8),
         "side": K.camera("Cam_Side", (7.5 * k * side, 0.0, 0.62), (0, 0.0, 0.55 * k), lens=85),
     }
     ref = mod.REF
@@ -93,9 +100,10 @@ def build_one(name, opts):
     if opts["render"]:
         outs = []
         if not opts["only_check"]:
-            for key, res in [("hero", (1600, 1000)), ("side", (1600, 1000)), ("front34", (1600, 1000)),
-                             ("rear34", (1600, 1000))]:
+            for key, res in [("hero", (1600, 1040)), ("side", (1600, 1040)), ("front34", (1600, 1040)),
+                             ("rear34", (1600, 1040)), ("detail", (1600, 1040))]:
                 p = os.path.join(ROOT, "renders", f"{mod.NAME}_{key}.jpg")
+                K.aim_hdri(cams[key], HDRI_ROT)
                 K.render(cams[key], p, res)
                 outs.append(p)
         if opts["check"]:

@@ -69,28 +69,28 @@ def fork_frame(o):
 
 
 def materials(B):
-    B.material("frame", (0.032, 0.036, 0.055), metal=0.35, rough=0.42, coat=0.35, bump=("noise", 900, 0.06))
-    B.material("panel", (0.065, 0.072, 0.095), metal=0.1, rough=0.5, coat=0.2, bump=("noise", 700, 0.05))
+    B.material("frame", (0.032, 0.036, 0.055), metal=0.35, rough=0.42, coat=0.35, bump=("noise", 900, 0.06), dirt=0.18)
+    B.material("panel", (0.065, 0.072, 0.095), metal=0.1, rough=0.5, coat=0.2, bump=("noise", 700, 0.05), dirt=0.08)
     B.material("graphic", (0.80, 0.82, 0.86), rough=0.4)
-    B.material("black", (0.018, 0.018, 0.02), rough=0.5, bump=("noise", 800, 0.06))
-    B.material("battery", (0.03, 0.03, 0.034), rough=0.6)
-    B.material("rubber", (0.016, 0.016, 0.016), rough=0.85, spec=0.3, bump=("rubber", 300, 0.12))
+    B.material("black", (0.018, 0.018, 0.02), rough=0.5, bump=("noise", 800, 0.06), dirt=0.2)
+    B.material("battery", (0.03, 0.03, 0.034), rough=0.6, dirt=0.15)
+    B.material("rubber", (0.016, 0.016, 0.016), rough=0.85, spec=0.3, bump=("rubber", 300, 0.12), dirt=0.28)
     B.material("grip", (0.02, 0.02, 0.02), rough=0.8, bump=("grip", 500, 0.35))
     B.material("seat", (0.022, 0.022, 0.024), rough=0.72, bump=("grip", 260, 0.4))
     B.material("cable", (0.012, 0.012, 0.013), rough=0.55)
-    B.material("mesh", (0.02, 0.02, 0.022), metal=0.6, rough=0.45)
+    B.material("mesh", (0.02, 0.02, 0.022), metal=0.6, rough=0.45, dirt=0.15)
     B.material("gold", (0.75, 0.50, 0.16), metal=1.0, rough=0.28)
-    B.material("rim", (0.03, 0.03, 0.035), metal=0.6, rough=0.32)
-    B.material("hub", (0.035, 0.035, 0.04), metal=0.6, rough=0.35)
-    B.material("spoke", (0.62, 0.63, 0.65), metal=1.0, rough=0.25)
-    B.material("steel", (0.55, 0.56, 0.58), metal=1.0, rough=0.3)
+    B.material("rim", (0.03, 0.03, 0.035), metal=0.6, rough=0.32, dirt=0.15)
+    B.material("hub", (0.035, 0.035, 0.04), metal=0.6, rough=0.35, dirt=0.15)
+    B.material("spoke", (0.42, 0.43, 0.45), metal=1.0, rough=0.35, dirt=0.1)
+    B.material("steel", (0.55, 0.56, 0.58), metal=1.0, rough=0.3, dirt=0.12)
     B.material("alu", (0.70, 0.71, 0.73), metal=1.0, rough=0.3, aniso=0.5, bump=("brushed", 60, 0.02))
     B.material("chrome", (0.9, 0.9, 0.92), metal=1.0, rough=0.08)
     B.material("bronze", (0.60, 0.40, 0.20), metal=1.0, rough=0.22)
     B.material("blue", (0.16, 0.13, 0.62), metal=0.9, rough=0.28)
-    B.material("spring", (0.03, 0.03, 0.033), metal=0.3, rough=0.5)
-    B.material("chain", (0.33, 0.33, 0.35), metal=1.0, rough=0.4)
-    B.material("caliper", (0.06, 0.06, 0.065), metal=0.6, rough=0.35)
+    B.material("spring", (0.03, 0.03, 0.033), metal=0.3, rough=0.5, dirt=0.15)
+    B.material("chain", (0.33, 0.33, 0.35), metal=1.0, rough=0.4, dirt=0.35)
+    B.material("caliper", (0.06, 0.06, 0.065), metal=0.6, rough=0.35, dirt=0.2)
     B.material("lens", (0.92, 0.94, 1.0), rough=0.05, emit=2.0)
     B.material("redlight", (0.75, 0.02, 0.02), rough=0.2, emit=1.0)
     B.material("screen", (0.02, 0.05, 0.08), metal=0.2, rough=0.05)
@@ -136,9 +136,22 @@ def caliper(B, group, axle, x, r_disc, ang, length=0.07, mat="caliper"):
         pts.append((cy + ri * math.cos(a), cz + ri * math.sin(a)))
     s = 1 if x > 0 else -1
     B.slab(group, mat, [pts], 0.046, bevel=0.008, x=x + s * 0.006)
-    # pads/pistons hint: a darker inner block
-    c = Vector((x + s * 0.03, cy + (r_disc - 0.01) * math.cos(ang), cz + (r_disc - 0.01) * math.sin(ang)))
-    K.bm_cyl(B.bm(group, "alu"), K.axis_matrix(c, (s, 0, 0)), 0.009, -0.004, 0.003, segs=10)
+    # piston bores bulging on the outer half, bleed nipple, pad pin, banjo bolt
+    for da in (-half * 0.45, half * 0.45):
+        a = ang + da
+        c = Vector((x + s * 0.029, cy + (r_disc - 0.008) * math.cos(a), cz + (r_disc - 0.008) * math.sin(a)))
+        K.bm_cyl(B.bm(group, mat), K.axis_matrix(c, (s, 0, 0)), 0.0115, -0.004, 0.004, segs=20)
+        K.bm_cyl(B.bm(group, "steel"), K.axis_matrix(c + Vector((s * 0.004, 0, 0)), (s, 0, 0)), 0.004, 0,
+                 0.0015, segs=6)
+    top = Vector((x + s * 0.018, cy + (r_disc + 0.014) * math.cos(ang), cz + (r_disc + 0.014) * math.sin(ang)))
+    radial = Vector((0, math.cos(ang), math.sin(ang)))
+    K.bm_tube(B.bm(group, "steel"), top - radial * 0.004, top + radial * 0.008, 0.0028, segs=6)
+    K.bm_cyl(B.bm(group, "rubber"), K.axis_matrix(top + radial * 0.008, radial), 0.0035, 0, 0.005, segs=8)
+    pin = Vector((x, cy + (r_disc + 0.006) * math.cos(ang), cz + (r_disc + 0.006) * math.sin(ang)))
+    K.bm_tube(B.bm(group, "steel"), pin - Vector((0.03, 0, 0)), pin + Vector((0.03, 0, 0)), 0.0022, segs=6)
+    bj = Vector((x + s * 0.034, cy + (r_disc + 0.004) * math.cos(ang + half * 0.9),
+                 cz + (r_disc + 0.004) * math.sin(ang + half * 0.9)))
+    K.bolt(B.bm(group, "steel"), bj, (s, 0, 0), r=0.006, h=0.007)
     return Vector((x + s * 0.006, cy + (r_disc - 0.01) * math.cos(ang), cz + (r_disc - 0.01) * math.sin(ang)))
 
 
@@ -304,25 +317,25 @@ def build_body(B):
     # head stock + head tube
     K.bm_tube(B.bm(G, "frame"), steer(226), steer(292), 0.029, segs=20)
     B.inflate(G, "frame", [L([(250, 238), (272, 240), (292, 254), (300, 280), (296, 304), (270, 306),
-                              (252, 296)])], 0.01, 0.075, 0.03)
+                              (252, 296)])], 0.01, 0.075, 0.012)
 
     # forged main spars (pair), running from head stock to the swingarm pivot plates
     spar = [(256, 236), (275, 243), (300, 262), (330, 284), (360, 306), (390, 334), (420, 366), (440, 390),
             (448, 406), (447, 428), (437, 442), (420, 444), (408, 432), (395, 392), (370, 368), (340, 342),
             (310, 318), (285, 300), (264, 292), (254, 282), (252, 250)]
-    B.inflate_pair(G, "frame", [L(spar)], 0.011, 0.017, 0.013, 0.088)
+    B.inflate_pair(G, "frame", [L(spar)], 0.009, 0.019, 0.006, 0.088)
     # forged pocket along the spar
     pocket = [(286, 268), (330, 296), (392, 350), (420, 386), (412, 392), (384, 362), (326, 312), (282, 282)]
     B.inflate_pair(G, "frame", [L(pocket)], 0.008, 0.003, 0.003, 0.1065)
     # lower cradle rails down the front of the battery and under the motor
     front = [tuple(v) for v in K.catmull([(262, 292), (282, 299), (296, 318), (301, 360), (304, 412)], 4)]
-    B.inflate_pair(G, "frame", [L(K.offset_polyline2d(front, 18))], 0.009, 0.013, 0.011, 0.074)
+    B.inflate_pair(G, "frame", [L(K.offset_polyline2d(front, 18))], 0.008, 0.013, 0.005, 0.074)
     cradle = [(296, 404), (314, 403), (332, 409), (352, 413), (400, 415), (430, 417), (448, 430), (448, 448),
               (437, 464), (420, 476), (395, 483), (350, 483), (326, 476), (311, 461), (301, 440)]
     hole = K.circle2d(*P(373, 442), 27 * S, 40)
-    B.inflate_pair(G, "frame", [L(cradle), hole], 0.008, 0.011, 0.009, 0.074)
+    B.inflate_pair(G, "frame", [L(cradle), hole], 0.007, 0.011, 0.005, 0.074)
     cross = [tuple(v) for v in K.catmull([(306, 398), (340, 402), (380, 406), (420, 414)], 4)]
-    B.inflate_pair(G, "frame", [L(K.offset_polyline2d(cross, 9))], 0.008, 0.01, 0.009, 0.077)
+    B.inflate_pair(G, "frame", [L(K.offset_polyline2d(cross, 9))], 0.007, 0.01, 0.005, 0.077)
     # cooling grille on each side at the front of the battery
     for s in (1, -1):
         X = s * 0.083
@@ -367,7 +380,7 @@ def build_body(B):
 
     # top cover over the controller
     top = [(280, 262), (372, 262), (384, 270), (388, 290), (380, 302), (296, 302), (282, 288)]
-    B.inflate(G, "black", [L(top)], 0.01, 0.085, 0.03)
+    B.inflate(G, "black", [L(top)], 0.009, 0.085, 0.014)
     for s in (1, -1):
         for k in range(5):  # controller cooling fins peeking out
             K.bm_box(B.bm(G, "alu"), Matrix.Translation(P3(330 + k * 9, 288, s * 0.086)), 0.006, 0.006, 0.04)
@@ -404,7 +417,7 @@ def build_body(B):
     K.bm_cyl(B.bm(G, "alu"), K.axis_matrix(P3(428, 436, 0.09), (1, 0, 0)), 0.012, 0, 0.004, 12)
     # bash guard under the motor
     guard = [(318, 462), (336, 476), (410, 479), (432, 467), (428, 461), (406, 471), (338, 469), (323, 457)]
-    B.inflate(G, "black", [L(guard)], 0.008, 0.065, 0.01)
+    B.inflate(G, "black", [L(guard)], 0.007, 0.065, 0.006)
 
     # final-drive front sprocket (11T, chain side)
     rp_front = K.build_sprocket(B, G, "steel", P3(428, 436), 0.060, 11, 0.0127, lighten=0)
@@ -492,8 +505,8 @@ def build_swingarm(B, rp_front, rp_rear):
     B.pivot(G, SWING_PIVOT)
     arm = [(418, 410), (436, 398), (462, 394), (486, 402), (530, 424), (575, 446), (596, 456), (602, 468),
            (596, 480), (580, 484), (560, 474), (520, 456), (480, 442), (450, 436), (428, 436), (416, 426)]
-    B.inflate_pair(G, "frame", [L(arm)], 0.01, 0.013, 0.011, 0.080)
-    B.inflate(G, "frame", [L([(436, 400), (462, 396), (468, 424), (444, 432)])], 0.01, 0.08, 0.012)
+    B.inflate_pair(G, "frame", [L(arm)], 0.008, 0.014, 0.006, 0.080)
+    B.inflate(G, "frame", [L([(436, 400), (462, 396), (468, 424), (444, 432)])], 0.008, 0.08, 0.007)
     K.bm_cyl(B.bm(G, "alu"), K.axis_matrix(SWING_PIVOT, (1, 0, 0)), 0.021, -0.1, 0.1, 16)
     for s in (1, -1):
         K.bm_cyl(B.bm(G, "steel"), K.axis_matrix(SWING_PIVOT + Vector((s * 0.1, 0, 0)), (s, 0, 0)),
