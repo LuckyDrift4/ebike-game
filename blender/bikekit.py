@@ -18,7 +18,8 @@ import math
 
 import bpy  # noqa: F401  (must be imported before bmesh when using the bpy module)
 import bmesh
-from mathutils import Matrix, Vector
+import numpy as np
+from mathutils import Matrix, Vector, geometry
 
 TAU = math.tau
 
@@ -112,6 +113,26 @@ def stadium2d(p0, p1, r, n=8):
         a = a0 - math.pi / 2 + math.pi * k / n
         pts.append((p1.x + r * math.cos(a), p1.y + r * math.sin(a)))
     return pts
+
+
+def clip_line_to_polygon(p0, p1, poly, steps=200):
+    """Longest inside run of segment p0->p1 within polygon (2D)."""
+    P0, P1 = np.asarray(p0, float), np.asarray(p1, float)
+    ts = np.linspace(0, 1, steps)
+    pts = P0[None] + (P1 - P0)[None] * ts[:, None]
+    ins = _inside(pts, np.asarray(poly, float))
+    best, cur = None, None
+    for i, k in enumerate(ins):
+        if k and cur is None:
+            cur = i
+        if (not k or i == steps - 1) and cur is not None:
+            end = i if k else i - 1
+            if best is None or end - cur > best[1] - best[0]:
+                best = (cur, end)
+            cur = None
+    if best is None:
+        return None
+    return tuple(pts[best[0]]), tuple(pts[best[1]])
 
 
 def offset_polyline2d(pts, w):
@@ -222,6 +243,50 @@ def bm_box(bm, M, sx, sy, sz, top=(1.0, 1.0), base_z=None):
         bm.faces.new([v[i] for i in f])
 
 
+def bm_knob(bm, M, sx, sy, sz, chamfer=0.22):
+    """Tyre knob: tapered block with chamfered top edges (base at local z=0)."""
+    hx, hy = sx / 2, sy / 2
+    zc = sz * (1 - chamfer)
+    rings = [((hx, hy), 0.0), ((hx * 0.93, hy * 0.92), zc), ((hx * 0.72, hy * 0.68), sz)]
+    vs = []
+    for (ax, ay), z in rings:
+        vs.append([bm.verts.new(M @ Vector(p)) for p in [(-ax, -ay, z), (ax, -ay, z), (ax, ay, z), (-ax, ay, z)]])
+    for a, b in zip(vs, vs[1:]):
+        for i in range(4):
+            bm.faces.new((a[i], a[(i + 1) % 4], b[(i + 1) % 4], b[i]))
+    bm.faces.new(vs[-1])
+    bm.faces.new(list(reversed(vs[0])))
+
+
+def bolt(bm, p, normal, r=0.005, h=0.004, washer=True, segs=6):
+    """Hex bolt head (with optional washer) sitting on a surface at p."""
+    n = Vector(normal).normalized()
+    M = axis_matrix(p, n)
+    if washer:
+        bm_cyl(bm, M, r * 1.45, 0.0, 0.0012, segs=12)
+    bm_cyl(bm, M, r, 0.0005, h, segs=segs)
+
+
+def bm_sweep_rect(bm, pts, w, h, up=(1, 0, 0), caps=True):
+    """Rectangular-section bar along a polyline: width w along `up`, height h."""
+    P = [Vector(p) for p in pts]
+    n = len(P)
+    upv = Vector(up).normalized()
+    rings = []
+    for i in range(n):
+        t = (P[min(i + 1, n - 1)] - P[max(i - 1, 0)]).normalized()
+        a = (upv - t * upv.dot(t)).normalized()
+        b = t.cross(a)
+        rings.append([bm.verts.new(P[i] + a * (sx * w / 2) + b * (sy * h / 2))
+                      for (sx, sy) in ((-1, -1), (1, -1), (1, 1), (-1, 1))])
+    for r0, r1 in zip(rings, rings[1:]):
+        for k in range(4):
+            bm.faces.new((r0[k], r0[(k + 1) % 4], r1[(k + 1) % 4], r1[k]))
+    if caps:
+        bm.faces.new(list(reversed(rings[0])))
+        bm.faces.new(rings[-1])
+
+
 def box_between(bm, p0, p1, w, h, up=(0, 0, 1)):
     """Rectangular bar from p0 to p1, width w (across 'side'), height h (along up)."""
     p0, p1 = Vector(p0), Vector(p1)
@@ -283,8 +348,247 @@ def deform_mesh(me, fn):
 
 
 # --------------------------------------------------------------------------- #
+#  Inflated solids: smooth, rounded bodies whose silhouette is a traced outline
+# --------------------------------------------------------------------------- #
+def _subdivide_loop(loop, h):
+    out = []
+    n = len(loop)
+    for i in range(n):
+        a = np.asarray(loop[i], float)
+        b = np.asarray(loop[(i + 1) % n], float)
+        k = max(1, int(math.ceil(np.linalg.norm(b - a) / h)))
+        for j in range(k):
+            out.append(a + (b - a) * j / k)
+    return np.array(out)
+
+
+def _seg_dist(P, A, B):
+    """Distance from points P (N,2) to the nearest of segments A->B (M,2)."""
+    AB = B - A
+    L2 = (AB ** 2).sum(1)
+    L2[L2 == 0] = 1e-12
+    out = np.empty(len(P))
+    for s in range(0, len(P), 1024):
+        p = P[s:s + 1024][:, None, :]
+        t = np.clip(((p - A[None]) * AB[None]).sum(2) / L2[None], 0, 1)
+        proj = A[None] + t[..., None] * AB[None]
+        out[s:s + 1024] = np.sqrt(((p - proj) ** 2).sum(2)).min(1)
+    return out
+
+
+def _inside(P, loop):
+    x, y = P[:, 0], P[:, 1]
+    res = np.zeros(len(P), bool)
+    B = np.roll(loop, -1, axis=0)
+    for (x1, y1), (x2, y2) in zip(loop, B):
+        cond = (y1 > y) != (y2 > y)
+        xi = x1 + (y - y1) * (x2 - x1) / ((y2 - y1) if y2 != y1 else 1e-30)
+        res ^= cond & (x < xi)
+    return res
+
+
+def inflate_mesh(loops, h, t_fn, r, c_fn=None, frame=None, rings=3, fn=None):
+    """Smooth solid whose outline (silhouette along the w axis) is `loops[0]`
+    (later loops are holes). Points are (u, v); the solid is built along w:
+      half-thickness t_fn(u, v), centre c_fn(u, v), edge radius r.
+    Edges are rounded with a quarter circle of radius min(r, t); if r >= t the
+    body is a closed pillow, otherwise a flat band joins the two halves.
+    Coordinates map to world as (X=w, Y=u, Z=v), or through `frame` as (u, v, w)."""
+    c_fn = c_fn or (lambda u, v: 0.0)
+    bl = [_subdivide_loop(l, h) for l in loops]
+    A = np.concatenate(bl)
+    B = np.concatenate([np.roll(l, -1, 0) for l in bl])
+
+    def material(P):
+        m = _inside(P, bl[0])
+        for hl in bl[1:]:
+            m &= ~_inside(P, hl)
+        return m
+
+    pts = [A]
+    # rings of points inset from the boundary to resolve the rounded edge
+    for k in range(1, rings + 1):
+        dk = r * (1 - math.cos((math.pi / 2) * k / (rings + 1)))
+        for l in bl:
+            tng = np.roll(l, -1, 0) - np.roll(l, 1, 0)
+            tng /= np.linalg.norm(tng, axis=1)[:, None] + 1e-12
+            nrm = np.stack([-tng[:, 1], tng[:, 0]], 1)
+            for sgn in (1, -1):
+                C = l + sgn * nrm * dk
+                if not len(C):
+                    continue
+                ok = material(C)
+                if ok.any():
+                    d = _seg_dist(C[ok], A, B)
+                    good = np.abs(d - dk) < 0.3 * dk
+                    pts.append(C[ok][good])
+    # interior hex grid
+    mn, mx = bl[0].min(0), bl[0].max(0)
+    xs = np.arange(mn[0] + h / 2, mx[0], h)
+    ys = np.arange(mn[1] + h / 2, mx[1], h * 0.866)
+    if len(xs) and len(ys):
+        G = np.array([(x + (h / 2 if j % 2 else 0.0), y) for j, y in enumerate(ys) for x in xs])
+        G = G[material(G)]
+        if len(G):
+            G = G[_seg_dist(G, A, B) > 0.45 * h]
+            pts.append(G)
+    P = np.concatenate(pts)
+    nb = len(A)
+    edges = []
+    o = 0
+    for l in bl:
+        n = len(l)
+        edges += [(o + i, o + (i + 1) % n) for i in range(n)]
+        o += n
+    res = geometry.delaunay_2d_cdt([Vector(p) for p in P], edges, [], 1, 1e-7)
+    V2 = np.array([tuple(v) for v in res[0]])
+    tris = [f for f in res[2] if len(f) == 3]
+    # drop triangles outside the material (robustness against holes)
+    cen = np.array([V2[list(f)].mean(0) for f in tris])
+    keep = material(cen)
+    tris = [f for f, k in zip(tris, keep) if k]
+    d = _seg_dist(V2, A, B)
+    is_b = d < 1e-6
+    bm = bmesh.new()
+    front, back = {}, {}
+    for i, (u, v) in enumerate(V2):
+        t = max(t_fn(u, v), 1e-4)
+        rr = min(r, t)
+        if d[i] >= rr:
+            off = t
+        else:
+            off = t - rr + math.sqrt(max(rr * rr - (rr - d[i]) ** 2, 0.0))
+        c = c_fn(u, v)
+        pf = (u, v, c + off)
+        pb = (u, v, c - off)
+        if frame is None:
+            pf, pb = (pf[2], pf[0], pf[1]), (pb[2], pb[0], pb[1])
+        else:
+            pf, pb = tuple(frame @ Vector(pf)), tuple(frame @ Vector(pb))
+        if fn:
+            pf, pb = fn(Vector(pf)), fn(Vector(pb))
+        front[i] = bm.verts.new(pf)
+        if is_b[i] and off < 1e-6:
+            back[i] = front[i]
+        else:
+            back[i] = bm.verts.new(pb)
+    for f in tris:
+        a, b_, c_ = f
+        try:
+            bm.faces.new((front[a], front[b_], front[c_]))
+        except ValueError:
+            pass
+        try:
+            bm.faces.new((back[c_], back[b_], back[a]))
+        except ValueError:
+            pass
+    # side band where the halves do not meet
+    for (i, j) in res[1]:
+        if is_b[i] and is_b[j] and front[i] is not back[i]:
+            try:
+                bm.faces.new((front[i], back[i], back[j], front[j]))
+            except ValueError:
+                pass
+    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-6)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    me = bpy.data.meshes.new("inflated")
+    bm.to_mesh(me)
+    bm.free()
+    return me
+
+
+# --------------------------------------------------------------------------- #
 #  Builder: materials, accumulation per (group, material), finalisation
 # --------------------------------------------------------------------------- #
+def _surface_texture(nt, bsdf, kind, scale, strength):
+    """Procedural micro-surface for renders: 'noise' (cast/paint texture),
+    'grip' (seat cover), 'rubber', 'brushed'. Only affects Blender renders."""
+    tc = nt.nodes.new("ShaderNodeTexCoord")
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = strength
+    if kind == "grip":
+        tex = nt.nodes.new("ShaderNodeTexVoronoi")
+        tex.inputs["Scale"].default_value = scale
+        nt.links.new(tc.outputs["Object"], tex.inputs["Vector"])
+        nt.links.new(tex.outputs["Distance"], bump.inputs["Height"])
+    elif kind == "brushed":
+        mp = nt.nodes.new("ShaderNodeMapping")
+        mp.inputs["Scale"].default_value = (scale, 1.0, 1.0)
+        tex = nt.nodes.new("ShaderNodeTexNoise")
+        tex.inputs["Scale"].default_value = 40.0
+        tex.inputs["Detail"].default_value = 12.0
+        nt.links.new(tc.outputs["Object"], mp.inputs["Vector"])
+        nt.links.new(mp.outputs["Vector"], tex.inputs["Vector"])
+        nt.links.new(tex.outputs["Fac"], bump.inputs["Height"])
+    else:
+        tex = nt.nodes.new("ShaderNodeTexNoise")
+        tex.inputs["Scale"].default_value = scale
+        tex.inputs["Detail"].default_value = 6.0 if kind == "noise" else 10.0
+        nt.links.new(tc.outputs["Object"], tex.inputs["Vector"])
+        nt.links.new(tex.outputs["Fac"], bump.inputs["Height"])
+        if kind == "rubber":
+            rr = nt.nodes.new("ShaderNodeMapRange")
+            rr.inputs["To Min"].default_value = bsdf.inputs["Roughness"].default_value - 0.08
+            rr.inputs["To Max"].default_value = min(bsdf.inputs["Roughness"].default_value + 0.08, 1.0)
+            nt.links.new(tex.outputs["Fac"], rr.inputs["Value"])
+            nt.links.new(rr.outputs["Result"], bsdf.inputs["Roughness"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+    if "Coat Normal" in bsdf.inputs and bsdf.inputs["Coat Weight"].default_value > 0:
+        pass  # keep the clear coat glassy-smooth over the textured base
+
+
+def _split_bmesh(bm, max_tris):
+    """Yield bmeshes of at most ~max_tris triangles, keeping connected pieces whole."""
+    if len(bm.faces) <= max_tris:
+        return [bm]
+    bm.faces.ensure_lookup_table()
+    bm.faces.index_update()
+    bm.verts.index_update()
+    seen = set()
+    islands = []
+    for f in bm.faces:
+        if f.index in seen:
+            continue
+        stack, isl = [f], []
+        seen.add(f.index)
+        while stack:
+            g = stack.pop()
+            isl.append(g)
+            for e in g.edges:
+                for h in e.link_faces:
+                    if h.index not in seen:
+                        seen.add(h.index)
+                        stack.append(h)
+        islands.append(isl)
+    groups, cur, n = [], [], 0
+    for isl in islands:
+        if n + len(isl) > max_tris and cur:
+            groups.append(cur)
+            cur, n = [], 0
+        cur.append(isl)
+        n += len(isl)
+    if cur:
+        groups.append(cur)
+    out = []
+    for grp in groups:
+        nb = bmesh.new()
+        vmap = {}
+        for isl in grp:
+            for f in isl:
+                vs = []
+                for v in f.verts:
+                    if v.index not in vmap:
+                        vmap[v.index] = nb.verts.new(v.co)
+                    vs.append(vmap[v.index])
+                try:
+                    nb.faces.new(vs)
+                except ValueError:
+                    pass
+        out.append(nb)
+    bm.free()
+    return out
+
+
 class Builder:
     def __init__(self, name):
         self.name = name
@@ -296,7 +600,8 @@ class Builder:
         self.objects = []
 
     # materials ---------------------------------------------------------------
-    def material(self, key, rgb, metal=0.0, rough=0.5, coat=0.0, emit=0.0, spec=0.5):
+    def material(self, key, rgb, metal=0.0, rough=0.5, coat=0.0, emit=0.0, spec=0.5, bump=None,
+                 aniso=0.0):
         name = f"{self.name}_{key}"
         m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
         m.diffuse_color = (*rgb, 1.0)
@@ -315,6 +620,10 @@ class Builder:
         if emit > 0:
             b.inputs["Emission Color"].default_value = (*rgb, 1.0)
             b.inputs["Emission Strength"].default_value = emit
+        if aniso:
+            b.inputs["Anisotropic"].default_value = aniso
+        if bump:
+            _surface_texture(nt, b, *bump)
         self.mats[key] = m
         return m
 
@@ -344,11 +653,26 @@ class Builder:
             f = None if fn is None else (lambda co, s=s: fn(co, s))
             self.slab(group, mat, loops, thick, bevel, res, s * x, f)
 
+    def inflate(self, group, mat, loops, h, t, r, c=0.0, frame=None, rings=3, fn=None):
+        """Rounded solid from a side outline. t / c may be numbers or f(u, v)."""
+        t_fn = t if callable(t) else (lambda u, v, t=t: t)
+        c_fn = c if callable(c) else (lambda u, v, c=c: c)
+        self.add_mesh(group, mat, inflate_mesh(loops, h, t_fn, r, c_fn, frame, rings, fn))
+
+    def inflate_pair(self, group, mat, loops, h, t, r, x, rings=3, fn=None, c=None):
+        """Mirrored pair at +x / -x. c(u, v, side) may move the centre per side."""
+        for s in (1, -1):
+            if c is None:
+                cc = s * x
+            else:
+                cc = (lambda u, v, s=s: c(u, v, s))
+            self.inflate(group, mat, loops, h, t, r, cc, None, rings, fn)
+
     def pivot(self, group, p):
         self.pivots[group] = Vector(p)
 
     # finalise -------------------------------------------------------------------
-    def finalize(self, smooth_angle=48.0, verbose=True):
+    def finalize(self, smooth_angle=48.0, verbose=True, max_tris=19000):
         report = []
         for (group, mat), bm in sorted(self.bms.items()):
             if not bm.faces:
@@ -356,23 +680,24 @@ class Builder:
                 continue
             bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
             bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method='BEAUTY', ngon_method='BEAUTY')
-            name = f"{self.name}_{group}_{mat}"
-            me = bpy.data.meshes.new(name)
-            bm.to_mesh(me)
-            bm.free()
-            pv = self.pivots.get(group, Vector((0, 0, 0)))
-            me.transform(Matrix.Translation(-pv))
-            for p in me.polygons:
-                p.use_smooth = True
-            me.set_sharp_from_angle(angle=math.radians(smooth_angle))
-            me.materials.append(self.mats[mat])
-            ob = bpy.data.objects.new(name, me)
-            ob.location = pv
-            ob["group"] = group
-            ob["part_material"] = mat
-            self.coll.objects.link(ob)
-            self.objects.append(ob)
-            report.append((name, len(me.polygons)))
+            for idx, chunk in enumerate(_split_bmesh(bm, max_tris)):
+                name = f"{self.name}_{group}_{mat}" + (str(idx + 1) if idx else "")
+                me = bpy.data.meshes.new(name)
+                chunk.to_mesh(me)
+                chunk.free()
+                pv = self.pivots.get(group, Vector((0, 0, 0)))
+                me.transform(Matrix.Translation(-pv))
+                for p in me.polygons:
+                    p.use_smooth = True
+                me.set_sharp_from_angle(angle=math.radians(smooth_angle))
+                me.materials.append(self.mats[mat])
+                ob = bpy.data.objects.new(name, me)
+                ob.location = pv
+                ob["group"] = group
+                ob["part_material"] = mat
+                self.coll.objects.link(ob)
+                self.objects.append(ob)
+                report.append((name, len(me.polygons)))
         self.bms.clear()
         if verbose:
             tot = 0
@@ -455,7 +780,7 @@ def build_wheel(B, group, center, *, rim_d, tire_h, tire_w, rim_w,
             Mk = Matrix((side, tang, up)).transposed().to_4x4()
             Mk.translation = base
             h_k = kh * (0.85 if abs(tilt) > 0.9 else 1.0)
-            bm_box(bm, Mk, aw, tl, h_k + 0.002, top=(0.86, 0.82), base_z=0.0)
+            bm_knob(bm, Mk, aw, tl, h_k + 0.002)
 
     # --- rim (U channel, closed profile)
     bm = B.bm(group, mats.get("rim", "rim"))
@@ -735,13 +1060,114 @@ def add_studio(center=(0, 0, 0.5), size=6.0):
     light("Rim", 'AREA', c + Vector((0.5, 4.0, 3.0)), 160, 2.0, c)
 
 
-def camera(name, loc, target, lens=50, ortho=None):
+def setup_outdoor(samples=96, sun_elev=38.0, sun_rot=-40.0):
+    """Daylight scene: physical sky + sun, asphalt ground, AgX view."""
+    sc = bpy.context.scene
+    sc.render.engine = 'CYCLES'
+    sc.cycles.device = 'CPU'
+    sc.cycles.samples = samples
+    sc.cycles.use_denoising = True
+    sc.view_settings.view_transform = 'AgX'
+    sc.view_settings.look = 'AgX - Medium High Contrast'
+    sc.view_settings.exposure = 0.35
+    w = bpy.data.worlds.new("Sky")
+    sc.world = w
+    nt = w.node_tree
+    if nt is None:
+        w.use_nodes = True
+        nt = w.node_tree
+    bg = nt.nodes.get("Background")
+    sky = nt.nodes.new("ShaderNodeTexSky")
+    sky.sky_type = 'MULTIPLE_SCATTERING' if 'MULTIPLE_SCATTERING' in \
+        sky.bl_rna.properties['sky_type'].enum_items.keys() else 'NISHITA'
+    sky.sun_elevation = math.radians(sun_elev)
+    sky.sun_rotation = math.radians(sun_rot)
+    for prop, val in (("sun_disc", False), ("air_density", 1.0), ("dust_density", 2.0), ("altitude", 100.0)):
+        if hasattr(sky, prop):
+            setattr(sky, prop, val)
+    nt.links.new(sky.outputs[0], bg.inputs[0])
+    bg.inputs[1].default_value = 0.11
+    # sun lamp matching the sky's sun direction
+    ld = bpy.data.lights.new("Sun", 'SUN')
+    ld.energy = 4.6
+    ld.angle = math.radians(1.2)
+    ld.color = (1.0, 0.96, 0.9)
+    sun = bpy.data.objects.new("Sun", ld)
+    sc.collection.objects.link(sun)
+    el, rot = math.radians(sun_elev), math.radians(sun_rot)
+    d = Vector((math.sin(rot) * math.cos(el), math.cos(rot) * math.cos(el), math.sin(el)))  # towards sun
+    sun.rotation_euler = (-d).to_track_quat('-Z', 'Y').to_euler()
+    # concrete paver ground
+    me = bpy.data.meshes.new("ground")
+    bm = bmesh.new()
+    bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=30)
+    bm.to_mesh(me)
+    bm.free()
+    g = bpy.data.objects.new("Ground", me)
+    sc.collection.objects.link(g)
+    m = bpy.data.materials.new("asphalt")
+    nt = m.node_tree
+    if nt is None:
+        m.use_nodes = True
+        nt = m.node_tree
+    b = nt.nodes.get("Principled BSDF")
+    tc = nt.nodes.new("ShaderNodeTexCoord")
+    brick = nt.nodes.new("ShaderNodeTexBrick")
+    brick.offset = 0.0
+    brick.inputs["Scale"].default_value = 1.0
+    brick.inputs["Mortar Size"].default_value = 0.008
+    brick.inputs["Brick Width"].default_value = 0.4
+    brick.inputs["Row Height"].default_value = 0.4
+    brick.inputs["Color1"].default_value = (0.26, 0.255, 0.25, 1)
+    brick.inputs["Color2"].default_value = (0.20, 0.195, 0.19, 1)
+    brick.inputs["Mortar"].default_value = (0.05, 0.05, 0.05, 1)
+    n1 = nt.nodes.new("ShaderNodeTexNoise")
+    n1.inputs["Scale"].default_value = 180.0
+    n1.inputs["Detail"].default_value = 8.0
+    n2 = nt.nodes.new("ShaderNodeTexNoise")
+    n2.inputs["Scale"].default_value = 3.0
+    ramp = nt.nodes.new("ShaderNodeValToRGB")
+    ramp.color_ramp.elements[0].color = (0.55, 0.55, 0.56, 1)
+    ramp.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1)
+    mul = nt.nodes.new("ShaderNodeMixRGB")
+    mul.blend_type = 'MULTIPLY'
+    mul.inputs[0].default_value = 1.0
+    mix = nt.nodes.new("ShaderNodeMath")
+    mix.operation = 'MULTIPLY_ADD'
+    mix.inputs[1].default_value = 0.35
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.inputs["Strength"].default_value = 0.25
+    nt.links.new(tc.outputs["Object"], n1.inputs["Vector"])
+    nt.links.new(tc.outputs["Object"], n2.inputs["Vector"])
+    nt.links.new(n2.outputs["Fac"], mix.inputs[0])
+    nt.links.new(n1.outputs["Fac"], mix.inputs[2])
+    nt.links.new(mix.outputs[0], ramp.inputs[0])
+    nt.links.new(tc.outputs["Object"], brick.inputs["Vector"])
+    nt.links.new(brick.outputs["Color"], mul.inputs[1])
+    nt.links.new(ramp.outputs["Color"], mul.inputs[2])
+    nt.links.new(mul.outputs[0], b.inputs["Base Color"])
+    hm = nt.nodes.new("ShaderNodeMath")
+    hm.operation = 'MULTIPLY_ADD'
+    hm.inputs[1].default_value = 0.15
+    nt.links.new(n1.outputs["Fac"], hm.inputs[0])
+    nt.links.new(brick.outputs["Fac"], hm.inputs[2])
+    nt.links.new(hm.outputs[0], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], b.inputs["Normal"])
+    b.inputs["Roughness"].default_value = 0.88
+    me.materials.append(m)
+
+
+def camera(name, loc, target, lens=50, ortho=None, fstop=None):
     cd = bpy.data.cameras.new(name)
     if ortho:
         cd.type = 'ORTHO'
         cd.ortho_scale = ortho
     else:
         cd.lens = lens
+    if fstop:
+        cd.dof.use_dof = True
+        cd.dof.focus_distance = (Vector(target) - Vector(loc)).length
+        cd.dof.aperture_fstop = fstop
     ob = bpy.data.objects.new(name, cd)
     bpy.context.scene.collection.objects.link(ob)
     ob.location = loc

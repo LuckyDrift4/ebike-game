@@ -13,11 +13,24 @@ side-view reference photos:
 
 More angles are in [`renders/`](renders/).
 
-Each model includes knobby tyres with real tread blocks, laced spokes, drilled or
-wave brake rotors, calipers, upside-down forks with triple clamps, handlebars
-with levers and grips, a coil-over rear shock, a swingarm, a roller chain with
-sprockets, foot pegs, the battery and motor, frame and bodywork. Brand logos and
-names are intentionally left off, because Roblox moderates trademarked logos.
+Each model includes:
+
+- **Wheels:** knobby tyres with chamfered tread blocks, laced spokes with
+  nipples, valve stems, drilled or wave brake rotors and calipers.
+- **Front end:** upside-down forks with adjusters and triple clamps.
+- **Controls:** handlebars with curved levers, hydraulic master cylinders,
+  grips, switchgear and a dash display.
+- **Rear end:** a coil-over shock with reservoir, a swingarm with chain
+  adjusters and a chain guide, and a roller chain with sprockets.
+- **Frame and bodywork:** forged frame plates with bolts, cables and hoses, the
+  battery and motor, and smooth curved seats, fenders and bodywork.
+
+Brand logos and names are intentionally left off, because Roblox moderates
+trademarked logos.
+
+Surface textures in the renders (grippy seat, rubber, brushed aluminium,
+paint) are procedural Blender shaders. They don't carry over into Roblox,
+where parts get flat colours from `BikeColors.lua`.
 
 ## How the models are organised
 
@@ -33,7 +46,8 @@ material. Meshes are named `<Bike>_<Group>_<material>`, for example
 | `Swingarm` | swingarm, chain, rear caliper | swingarm pivot |
 | `RearWheel` | tyre, rim, spokes, hub, rear rotor, sprocket | rear axle |
 
-Every mesh is under Roblox's 20,000-triangle limit. `models/<Bike>_rig.json`
+Every mesh is under Roblox's 20,000-triangle limit. Larger ones are split into
+numbered pieces (`SurRon_Body_frame`, `SurRon_Body_frame2`, ...). `models/<Bike>_rig.json`
 lists each mesh's pivot and triangle count, plus the axle centres, the steering
 axis and the swingarm pivot. Use these points to place `HingeConstraint`s for the
 wheels and steering and a hinge or spring for the swingarm. Coordinates in that
