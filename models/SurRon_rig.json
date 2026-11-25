@@ -42,7 +42,7 @@
         0.0,
         0.5
       ],
-      "tris": 3108
+      "tris": 3112
     },
     "SurRon_Body_black": {
       "pivot": [
@@ -50,7 +50,7 @@
         0.0,
         0.5
       ],
-      "tris": 7624
+      "tris": 11816
     },
     "SurRon_Body_blue": {
       "pivot": [
@@ -82,7 +82,7 @@
         0.0,
         0.5
       ],
-      "tris": 17144
+      "tris": 4464
     },
     "SurRon_Body_frame2": {
       "pivot": [
@@ -90,7 +90,7 @@
         0.0,
         0.5
       ],
-      "tris": 13040
+      "tris": 15520
     },
     "SurRon_Body_frame3": {
       "pivot": [
@@ -98,7 +98,7 @@
         0.0,
         0.5
       ],
-      "tris": 17548
+      "tris": 15520
     },
     "SurRon_Body_frame4": {
       "pivot": [
@@ -106,7 +106,31 @@
         0.0,
         0.5
       ],
-      "tris": 5956
+      "tris": 14768
+    },
+    "SurRon_Body_frame5": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.5
+      ],
+      "tris": 14726
+    },
+    "SurRon_Body_frame6": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.5
+      ],
+      "tris": 17070
+    },
+    "SurRon_Body_frame7": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.5
+      ],
+      "tris": 3676
     },
     "SurRon_Body_gold": {
       "pivot": [
@@ -138,7 +162,15 @@
         0.0,
         0.5
       ],
-      "tris": 8360
+      "tris": 13336
+    },
+    "SurRon_Body_panel2": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.5
+      ],
+      "tris": 13504
     },
     "SurRon_Body_redlight": {
       "pivot": [
@@ -162,7 +194,7 @@
         0.0,
         0.5
       ],
-      "tris": 2824
+      "tris": 2636
     },
     "SurRon_Body_spring": {
       "pivot": [
@@ -178,7 +210,7 @@
         0.0,
         0.5
       ],
-      "tris": 3584
+      "tris": 3728
     },
     "SurRon_FrontWheel_alu": {
       "pivot": [
@@ -210,7 +242,7 @@
         -0.6226,
         0.3113
       ],
-      "tris": 1440
+      "tris": 1668
     },
     "SurRon_FrontWheel_rubber": {
       "pivot": [
@@ -218,7 +250,7 @@
         -0.6226,
         0.3113
       ],
-      "tris": 7464
+      "tris": 7904
     },
     "SurRon_FrontWheel_spoke": {
       "pivot": [
@@ -226,7 +258,7 @@
         -0.6226,
         0.3113
       ],
-      "tris": 1296
+      "tris": 4032
     },
     "SurRon_FrontWheel_steel": {
       "pivot": [
@@ -266,7 +298,7 @@
         0.6283,
         0.3113
       ],
-      "tris": 1440
+      "tris": 1668
     },
     "SurRon_RearWheel_rubber": {
       "pivot": [
@@ -274,7 +306,7 @@
         0.6283,
         0.3113
       ],
-      "tris": 7464
+      "tris": 7904
     },
     "SurRon_RearWheel_spoke": {
       "pivot": [
@@ -282,7 +314,7 @@
         0.6283,
         0.3113
       ],
-      "tris": 1296
+      "tris": 4032
     },
     "SurRon_RearWheel_steel": {
       "pivot": [
@@ -306,7 +338,7 @@
         -0.3139,
         0.8996
       ],
-      "tris": 8964
+      "tris": 12758
     },
     "SurRon_Steering_bronze": {
       "pivot": [
@@ -338,7 +370,23 @@
         -0.3139,
         0.8996
       ],
-      "tris": 256
+      "tris": 624
+    },
+    "SurRon_Steering_drl": {
+      "pivot": [
+        0.0,
+        -0.3139,
+        0.8996
+      ],
+      "tris": 384
+    },
+    "SurRon_Steering_glass": {
+      "pivot": [
+        0.0,
+        -0.3139,
+        0.8996
+      ],
+      "tris": 160
     },
     "SurRon_Steering_gold": {
       "pivot": [
@@ -356,14 +404,6 @@
       ],
       "tris": 120
     },
-    "SurRon_Steering_lens": {
-      "pivot": [
-        0.0,
-        -0.3139,
-        0.8996
-      ],
-      "tris": 172
-    },
     "SurRon_Steering_redlight": {
       "pivot": [
         0.0,
@@ -378,7 +418,7 @@
         -0.3139,
         0.8996
       ],
-      "tris": 2588
+      "tris": 13788
     },
     "SurRon_Steering_rubber": {
       "pivot": [
@@ -402,7 +442,7 @@
         -0.3139,
         0.8996
       ],
-      "tris": 640
+      "tris": 824
     },
     "SurRon_Swingarm_alu": {
       "pivot": [
@@ -418,7 +458,7 @@
         0.1868,
         0.4528
       ],
-      "tris": 4580
+      "tris": 4628
     },
     "SurRon_Swingarm_cable": {
       "pivot": [
@@ -450,7 +490,15 @@
         0.1868,
         0.4528
       ],
-      "tris": 13336
+      "tris": 13140
+    },
+    "SurRon_Swingarm_frame2": {
+      "pivot": [
+        0.0,
+        0.1868,
+        0.4528
+      ],
+      "tris": 17728
     },
     "SurRon_Swingarm_graphic": {
       "pivot": [
@@ -474,7 +522,7 @@
         0.1868,
         0.4528
       ],
-      "tris": 392
+      "tris": 680
     }
   }
 }
