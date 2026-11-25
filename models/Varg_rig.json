@@ -1,0 +1,368 @@
+{
+  "front_axle": [
+    0.0,
+    -0.7395,
+    0.3467
+  ],
+  "rear_axle": [
+    0.0,
+    0.7395,
+    0.3403
+  ],
+  "swingarm_pivot": [
+    0.0,
+    0.1725,
+    0.4979
+  ],
+  "steering_axis_top": [
+    0.0,
+    -0.2843,
+    1.1396
+  ],
+  "steering_axis_bottom": [
+    0.0,
+    -0.392,
+    0.9029
+  ],
+  "wheel_radius_front": 0.3467,
+  "wheel_radius_rear": 0.3403,
+  "_axes": "Blender coords in metres: +X = bike's left, -Y = front, +Z = up, ground at Z=0",
+  "meshes": {
+    "Varg_Body_alu": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 120
+    },
+    "Varg_Body_battery": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 220
+    },
+    "Varg_Body_battrib": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 1320
+    },
+    "Varg_Body_black": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 1148
+    },
+    "Varg_Body_chrome": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 44
+    },
+    "Varg_Body_cover": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 444
+    },
+    "Varg_Body_frame": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 2164
+    },
+    "Varg_Body_red": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 1576
+    },
+    "Varg_Body_redlight": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 12
+    },
+    "Varg_Body_seat": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 316
+    },
+    "Varg_Body_spring": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 1804
+    },
+    "Varg_Body_steel": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 1580
+    },
+    "Varg_Body_tankcover": {
+      "pivot": [
+        0.0,
+        0.0,
+        0.55
+      ],
+      "tris": 124
+    },
+    "Varg_FrontWheel_alu": {
+      "pivot": [
+        0.0,
+        -0.7395,
+        0.3467
+      ],
+      "tris": 2232
+    },
+    "Varg_FrontWheel_hub": {
+      "pivot": [
+        0.0,
+        -0.7395,
+        0.3467
+      ],
+      "tris": 640
+    },
+    "Varg_FrontWheel_rim": {
+      "pivot": [
+        0.0,
+        -0.7395,
+        0.3467
+      ],
+      "tris": 1440
+    },
+    "Varg_FrontWheel_rubber": {
+      "pivot": [
+        0.0,
+        -0.7395,
+        0.3467
+      ],
+      "tris": 4152
+    },
+    "Varg_FrontWheel_spoke": {
+      "pivot": [
+        0.0,
+        -0.7395,
+        0.3467
+      ],
+      "tris": 1296
+    },
+    "Varg_FrontWheel_steel": {
+      "pivot": [
+        0.0,
+        -0.7395,
+        0.3467
+      ],
+      "tris": 5376
+    },
+    "Varg_RearWheel_alu": {
+      "pivot": [
+        0.0,
+        0.7395,
+        0.3403
+      ],
+      "tris": 2036
+    },
+    "Varg_RearWheel_hub": {
+      "pivot": [
+        0.0,
+        0.7395,
+        0.3403
+      ],
+      "tris": 768
+    },
+    "Varg_RearWheel_rim": {
+      "pivot": [
+        0.0,
+        0.7395,
+        0.3403
+      ],
+      "tris": 1440
+    },
+    "Varg_RearWheel_rubber": {
+      "pivot": [
+        0.0,
+        0.7395,
+        0.3403
+      ],
+      "tris": 4020
+    },
+    "Varg_RearWheel_spoke": {
+      "pivot": [
+        0.0,
+        0.7395,
+        0.3403
+      ],
+      "tris": 1296
+    },
+    "Varg_RearWheel_sprocket": {
+      "pivot": [
+        0.0,
+        0.7395,
+        0.3403
+      ],
+      "tris": 4608
+    },
+    "Varg_RearWheel_steel": {
+      "pivot": [
+        0.0,
+        0.7395,
+        0.3403
+      ],
+      "tris": 4496
+    },
+    "Varg_Steering_alu": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 592
+    },
+    "Varg_Steering_black": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 1268
+    },
+    "Varg_Steering_caliper": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 284
+    },
+    "Varg_Steering_frame": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 2604
+    },
+    "Varg_Steering_gold": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 184
+    },
+    "Varg_Steering_grip": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 120
+    },
+    "Varg_Steering_plate": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 380
+    },
+    "Varg_Steering_red": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 156
+    },
+    "Varg_Steering_rubber": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 184
+    },
+    "Varg_Steering_screen": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 12
+    },
+    "Varg_Steering_stanchion": {
+      "pivot": [
+        0.0,
+        -0.3381,
+        1.0213
+      ],
+      "tris": 184
+    },
+    "Varg_Swingarm_alu": {
+      "pivot": [
+        0.0,
+        0.1725,
+        0.4979
+      ],
+      "tris": 532
+    },
+    "Varg_Swingarm_black": {
+      "pivot": [
+        0.0,
+        0.1725,
+        0.4979
+      ],
+      "tris": 168
+    },
+    "Varg_Swingarm_caliper": {
+      "pivot": [
+        0.0,
+        0.1725,
+        0.4979
+      ],
+      "tris": 284
+    },
+    "Varg_Swingarm_chain": {
+      "pivot": [
+        0.0,
+        0.1725,
+        0.4979
+      ],
+      "tris": 5472
+    },
+    "Varg_Swingarm_steel": {
+      "pivot": [
+        0.0,
+        0.1725,
+        0.4979
+      ],
+      "tris": 112
+    }
+  }
+}
