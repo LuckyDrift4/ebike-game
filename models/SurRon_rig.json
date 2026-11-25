@@ -338,7 +338,7 @@
         -0.3139,
         0.8996
       ],
-      "tris": 12758
+      "tris": 5932
     },
     "SurRon_Steering_bronze": {
       "pivot": [
@@ -363,30 +363,6 @@
         0.8996
       ],
       "tris": 444
-    },
-    "SurRon_Steering_chrome": {
-      "pivot": [
-        0.0,
-        -0.3139,
-        0.8996
-      ],
-      "tris": 624
-    },
-    "SurRon_Steering_drl": {
-      "pivot": [
-        0.0,
-        -0.3139,
-        0.8996
-      ],
-      "tris": 384
-    },
-    "SurRon_Steering_glass": {
-      "pivot": [
-        0.0,
-        -0.3139,
-        0.8996
-      ],
-      "tris": 160
     },
     "SurRon_Steering_gold": {
       "pivot": [

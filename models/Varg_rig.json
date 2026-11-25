@@ -66,7 +66,7 @@
         0.0,
         0.55
       ],
-      "tris": 12664
+      "tris": 12704
     },
     "Varg_Body_chrome": {
       "pivot": [
@@ -90,7 +90,7 @@
         0.0,
         0.55
       ],
-      "tris": 14972
+      "tris": 14980
     },
     "Varg_Body_framealu": {
       "pivot": [
@@ -98,7 +98,7 @@
         0.0,
         0.55
       ],
-      "tris": 13848
+      "tris": 13872
     },
     "Varg_Body_red": {
       "pivot": [
@@ -106,7 +106,7 @@
         0.0,
         0.55
       ],
-      "tris": 15368
+      "tris": 15392
     },
     "Varg_Body_red2": {
       "pivot": [
@@ -114,7 +114,7 @@
         0.0,
         0.55
       ],
-      "tris": 11920
+      "tris": 11872
     },
     "Varg_Body_red3": {
       "pivot": [
@@ -122,7 +122,7 @@
         0.0,
         0.55
       ],
-      "tris": 10092
+      "tris": 10108
     },
     "Varg_Body_redlight": {
       "pivot": [
@@ -138,7 +138,7 @@
         0.0,
         0.55
       ],
-      "tris": 6828
+      "tris": 6716
     },
     "Varg_Body_shockgold": {
       "pivot": [
@@ -170,7 +170,7 @@
         0.0,
         0.55
       ],
-      "tris": 2608
+      "tris": 2544
     },
     "Varg_Body_white": {
       "pivot": [
@@ -202,7 +202,7 @@
         -0.7395,
         0.3467
       ],
-      "tris": 1440
+      "tris": 1668
     },
     "Varg_FrontWheel_rubber": {
       "pivot": [
@@ -210,7 +210,7 @@
         -0.7395,
         0.3467
       ],
-      "tris": 5384
+      "tris": 7984
     },
     "Varg_FrontWheel_spoke": {
       "pivot": [
@@ -218,7 +218,7 @@
         -0.7395,
         0.3467
       ],
-      "tris": 1296
+      "tris": 4032
     },
     "Varg_FrontWheel_steel": {
       "pivot": [
@@ -250,7 +250,7 @@
         0.7395,
         0.3403
       ],
-      "tris": 1440
+      "tris": 1668
     },
     "Varg_RearWheel_rubber": {
       "pivot": [
@@ -258,7 +258,7 @@
         0.7395,
         0.3403
       ],
-      "tris": 5164
+      "tris": 7744
     },
     "Varg_RearWheel_spoke": {
       "pivot": [
@@ -266,7 +266,7 @@
         0.7395,
         0.3403
       ],
-      "tris": 1296
+      "tris": 4032
     },
     "Varg_RearWheel_sprocket": {
       "pivot": [
@@ -290,7 +290,7 @@
         -0.3381,
         1.0213
       ],
-      "tris": 912
+      "tris": 872
     },
     "Varg_Steering_black": {
       "pivot": [
@@ -306,7 +306,7 @@
         -0.3381,
         1.0213
       ],
-      "tris": 284
+      "tris": 444
     },
     "Varg_Steering_frame": {
       "pivot": [
@@ -346,7 +346,7 @@
         -0.3381,
         1.0213
       ],
-      "tris": 5610
+      "tris": 5626
     },
     "Varg_Steering_red": {
       "pivot": [
@@ -354,7 +354,7 @@
         -0.3381,
         1.0213
       ],
-      "tris": 2968
+      "tris": 2972
     },
     "Varg_Steering_rubber": {
       "pivot": [
@@ -362,7 +362,7 @@
         -0.3381,
         1.0213
       ],
-      "tris": 184
+      "tris": 216
     },
     "Varg_Steering_screen": {
       "pivot": [
@@ -386,7 +386,7 @@
         -0.3381,
         1.0213
       ],
-      "tris": 472
+      "tris": 632
     },
     "Varg_Swingarm_alu": {
       "pivot": [
@@ -394,7 +394,7 @@
         0.1725,
         0.4979
       ],
-      "tris": 16900
+      "tris": 16868
     },
     "Varg_Swingarm_black": {
       "pivot": [
@@ -402,7 +402,7 @@
         0.1725,
         0.4979
       ],
-      "tris": 6008
+      "tris": 6040
     },
     "Varg_Swingarm_cable": {
       "pivot": [
@@ -426,7 +426,15 @@
         0.1725,
         0.4979
       ],
-      "tris": 284
+      "tris": 444
+    },
+    "Varg_Swingarm_rubber": {
+      "pivot": [
+        0.0,
+        0.1725,
+        0.4979
+      ],
+      "tris": 32
     },
     "Varg_Swingarm_steel": {
       "pivot": [
@@ -434,7 +442,7 @@
         0.1725,
         0.4979
       ],
-      "tris": 296
+      "tris": 456
     }
   }
 }
