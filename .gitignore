@@ -1,0 +1,6 @@
+# Blender autosaves / backups
+*.blend1
+*.blend2
+__pycache__/
+# reference-overlay debug renders
+renders/_check/
