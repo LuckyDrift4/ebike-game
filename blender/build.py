@@ -11,6 +11,7 @@ or with the `bpy` Python module:
 Outputs go to ../models/ and ../renders/ relative to this file.
 """
 
+import math
 import os
 import sys
 
@@ -25,7 +26,7 @@ import importlib  # noqa: E402
 
 import bikekit as K  # noqa: E402
 
-BIKES = ["surron", "varg"]
+BIKES = ["surron", "surron_black", "varg"]
 HDRI_ROT = 200.0   # backdrop rotation that puts the sunny square behind the hero camera
 
 
@@ -60,18 +61,22 @@ def build_one(name, opts):
                  glb_path=os.path.join(ROOT, "models", f"{mod.NAME}.glb"))
 
     # photographic scene: HDR backdrop + shadow catcher (kept in the .blend for re-rendering)
-    hdri = os.path.join(HERE, "assets", "san_giuseppe_bridge_2k.hdr")
+    scene = getattr(mod, "SCENE", {})
+    hdri = os.path.join(HERE, "assets", scene.get("hdri", "san_giuseppe_bridge_2k.hdr"))
+    hdri_rot = scene.get("rot", HDRI_ROT)
     if os.path.exists(hdri):
-        K.setup_hdri(hdri, HDRI_ROT, 1.0, samples=opts["samples"])
+        K.setup_hdri(hdri, hdri_rot, 1.0, samples=opts["samples"])
     else:
         K.setup_outdoor(samples=opts["samples"])
-    k = 1.0 if mod.NAME == "SurRon" else 1.12   # bigger bike -> step back a little
+    k = 1.12 if mod.NAME == "Varg" else 1.0   # bigger bike -> step back a little
     tgt = Vector((0, 0.0, 0.52 * k))
     side = mod.REF["camera_side"]
     cams = {
         "hero": K.camera("Cam_Hero", (2.35 * k, -2.05 * k, 0.9), tgt, lens=40, fstop=4.0),
         "front34": K.camera("Cam_Front34", (-1.95 * k, -2.15 * k, 1.05), tgt, lens=35, fstop=4.0),
         "rear34": K.camera("Cam_Rear34", (2.25 * k, 2.5 * k, 0.78), tgt, lens=38, fstop=4.0),
+        "owner": K.camera("Cam_Owner", (-0.95 * k, -1.45 * k, 0.95), Vector((0.0, 0.05, 0.5 * k)), lens=24,
+                          fstop=5.6),
         "detail": K.camera("Cam_Detail", (1.25 * k, -0.25 * k, 0.75), Vector((0, 0.05, 0.5 * k)), lens=40,
                            fstop=2.8),
         "side": K.camera("Cam_Side", (7.5 * k * side, 0.0, 0.62), (0, 0.0, 0.55 * k), lens=85),
@@ -98,12 +103,15 @@ def build_one(name, opts):
                                     compress=True)
 
     if opts["render"]:
+        lean = pose_parked(B.objects)
+        if lean:
+            print(f"parked on the kick stand, leaning {lean:.1f} deg")
         outs = []
         if not opts["only_check"]:
             for key, res in [("hero", (1600, 1040)), ("side", (1600, 1040)), ("front34", (1600, 1040)),
-                             ("rear34", (1600, 1040)), ("detail", (1600, 1040))]:
+                             ("rear34", (1600, 1040)), ("detail", (1600, 1040)), ("owner", (1200, 1600))]:
                 p = os.path.join(ROOT, "renders", f"{mod.NAME}_{key}.jpg")
-                K.aim_hdri(cams[key], HDRI_ROT)
+                K.aim_hdri(cams[key], hdri_rot)
                 K.render(cams[key], p, res)
                 outs.append(p)
         if opts["check"]:
@@ -182,6 +190,29 @@ def write_roblox_colors():
     os.makedirs(os.path.join(ROOT, "roblox"), exist_ok=True)
     with open(os.path.join(ROOT, "roblox", "BikeColors.lua"), "w") as f:
         f.write("\n".join(lines))
+
+
+def pose_parked(objs, deploy=(-100.0, -25.0, 0.0), max_lean=14.0):
+    """For renders only: swing the kick stand down and lean the bike onto it
+    (the saved .blend / FBX keep the upright riding pose)."""
+    ks = [o for o in objs if o.get("group") == "Kickstand"]
+    if not ks:
+        return 0.0
+    root = bpy.data.objects.new("BikeRoot", None)
+    bpy.context.scene.collection.objects.link(root)
+    for o in objs:
+        o.parent = root
+    for o in ks:
+        o.rotation_euler = tuple(math.radians(a) for a in deploy)
+    lean = 0.0
+    for i in range(0, int(max_lean * 4) + 1):
+        lean = i * 0.25
+        root.rotation_euler = (0.0, math.radians(lean), 0.0)
+        bpy.context.view_layer.update()
+        mz = min((o.matrix_world @ v.co).z for o in ks for v in o.data.vertices)
+        if mz <= 0.002:
+            break
+    return lean
 
 
 def main():

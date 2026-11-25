@@ -20,6 +20,9 @@ NAME = "SurRon"
 REF = dict(size=720, scale=0.00283, center_px=(360, 360), mid_x=359, ground=580,
            camera_side=+1)  # photo shows the bike's left (+X) side
 
+# Build options; variants (e.g. surron_black.py) change these before building.
+STYLE = dict(graphics=True, full_ribs=False)
+
 S = REF["scale"]
 GROUND = REF["ground"]
 MIDX = REF["mid_x"]
@@ -87,7 +90,9 @@ def materials(B):
     B.material("alu", (0.70, 0.71, 0.73), metal=1.0, rough=0.3, aniso=0.5, bump=("brushed", 60, 0.02))
     B.material("chrome", (0.9, 0.9, 0.92), metal=1.0, rough=0.08)
     B.material("bronze", (0.60, 0.40, 0.20), metal=1.0, rough=0.22)
-    B.material("blue", (0.16, 0.13, 0.62), metal=0.9, rough=0.28)
+    B.material("shock", (0.16, 0.13, 0.62), metal=0.9, rough=0.28)
+    B.material("lever", (0.70, 0.71, 0.73), metal=1.0, rough=0.3)
+    B.material("peg", (0.70, 0.71, 0.73), metal=1.0, rough=0.35, dirt=0.2)
     B.material("spring", (0.03, 0.03, 0.033), metal=0.3, rough=0.5, dirt=0.15)
     B.material("chain", (0.33, 0.33, 0.35), metal=1.0, rough=0.4, dirt=0.35)
     B.material("caliper", (0.06, 0.06, 0.065), metal=0.6, rough=0.35, dirt=0.2)
@@ -231,11 +236,11 @@ def build_steering(B):
         for dx in (-0.013, 0.013):
             K.bolt(B.bm(G, "steel"), res + Vector((dx, 0.009, 0.0125)), (0, 0, 1), r=0.0022, h=0.0015, washer=False)
         piv = mc + Vector((s * 0.03, -0.032, -0.004))
-        K.bm_cyl(B.bm(G, "alu"), K.axis_matrix(piv, (0, 0, 1)), 0.0065, -0.009, 0.009, 10)
+        K.bm_cyl(B.bm(G, "lever"), K.axis_matrix(piv, (0, 0, 1)), 0.0065, -0.009, 0.009, 10)
         blade = K.catmull([piv, piv + Vector((s * 0.03, -0.014, -0.004)), piv + Vector((s * 0.08, -0.022, -0.014)),
                            piv + Vector((s * 0.125, -0.018, -0.022)), piv + Vector((s * 0.15, -0.01, -0.024))], 5)
-        K.bm_sweep_rect(B.bm(G, "alu"), blade, 0.013, 0.0065, up=(0, 0, 1))
-        K.bm_sweep(B.bm(G, "alu"), [blade[-1], blade[-1] + (blade[-1] - blade[-2]).normalized() * 0.008], 0.0075,
+        K.bm_sweep_rect(B.bm(G, "lever"), blade, 0.013, 0.0065, up=(0, 0, 1))
+        K.bm_sweep(B.bm(G, "lever"), [blade[-1], blade[-1] + (blade[-1] - blade[-2]).normalized() * 0.008], 0.0075,
                    segs=10)
         for dz in (-0.009, 0.009):  # clamp screws
             K.bolt(B.bm(G, "steel"), mc + Vector((0, 0.0155, dz)), (0, 1, 0), r=0.0025, h=0.002, washer=False)
@@ -356,11 +361,23 @@ def build_body(B):
     B.inflate(G, "battery", [L(batt)], 0.016, 0.075, 0.015)
     cover = [(300, 303), (386, 303), (402, 331), (426, 372), (431, 398), (306, 406), (301, 360)]
     B.inflate_pair(G, "panel", [L(cover)], 0.007, 0.005, 0.0025, 0.077, pocket=(0.008, 0.003, 0.004))
-    for s_ in (1, -1):  # moulded vertical ribs on the upper cover
-        for k in range(7):
-            x = 312 + k * 4.2
-            K.box_between(B.bm(G, "panel"), P3(x, 312, s_ * 0.0795), P3(x + 1.0, 334, s_ * 0.0795), 0.003, 0.0035,
-                          up=(1, 0, 0))
+    if STYLE["full_ribs"]:
+        # moulded vertical ribs across the whole cover (blacked-out version)
+        inner = [(306, 309), (382, 309), (397, 334), (420, 372), (424, 396), (311, 400), (307, 360)]
+        for k in range(17):
+            x = 310 + k * 6.6
+            seg = K.clip_line_to_polygon((x, 300), (x + 3, 412), inner, 160)
+            if seg:
+                a, b = seg
+                for s_ in (1, -1):
+                    K.box_between(B.bm(G, "panel"), P3(a[0], a[1], s_ * 0.0795), P3(b[0], b[1], s_ * 0.0795),
+                                  0.003, 0.004, up=(1, 0, 0))
+    else:
+        for s_ in (1, -1):  # moulded vertical ribs on the upper cover
+            for k in range(7):
+                x = 312 + k * 4.2
+                K.box_between(B.bm(G, "panel"), P3(x, 312, s_ * 0.0795), P3(x + 1.0, 334, s_ * 0.0795), 0.003,
+                              0.0035, up=(1, 0, 0))
     gfx = [[(305, 334), (322, 334), (333, 368), (313, 368)]]
     for k, y0 in enumerate([352, 361, 370, 379, 388]):
         x0 = 337 + k * 2
@@ -368,7 +385,7 @@ def build_body(B):
         gfx.append([(x0, y0), (x1, y0), (x1 + 3, y0 + 4), (x0 + 1, y0 + 4)])
     gfx.append([(392, 360), (418, 384), (414, 388), (388, 364)])
     gfx.append([(388, 372), (420, 398), (414, 401), (384, 376)])
-    for g in gfx:
+    for g in (gfx if STYLE["graphics"] else []):
         B.slab_pair(G, "graphic", [L(g)], 0.0008, 0.0794)
 
     # top cover over the controller
@@ -423,14 +440,14 @@ def build_body(B):
         perp = -perp
     K.bm_cyl(B.bm(G, "black"), K.axis_matrix(st, (1, 0, 0)), 0.013, -0.016, 0.016, 14)
     K.bm_tube(B.bm(G, "black"), st + d * 0.04, st + d * 0.48, 0.021, segs=18)
-    K.bm_tube(B.bm(G, "blue"), st + d * 0.03 + perp * 0.036, st + d * 0.40 + perp * 0.036, 0.016, segs=16)
-    K.box_between(B.bm(G, "blue"), st + d * 0.08, st + d * 0.08 + perp * 0.036, 0.018, 0.02, up=(1, 0, 0))
-    K.bm_tube(B.bm(G, "blue"), st + d * 0.24, st + d * 0.27, 0.036, segs=20)
+    K.bm_tube(B.bm(G, "shock"), st + d * 0.03 + perp * 0.036, st + d * 0.40 + perp * 0.036, 0.016, segs=16)
+    K.box_between(B.bm(G, "shock"), st + d * 0.08, st + d * 0.08 + perp * 0.036, 0.018, 0.02, up=(1, 0, 0))
+    K.bm_tube(B.bm(G, "shock"), st + d * 0.24, st + d * 0.27, 0.036, segs=20)
     K.bm_tube(B.bm(G, "chrome"), st + d * 0.46, st + d * 0.94, 0.0085, segs=12)
     K.bm_sweep(B.bm(G, "spring"), K.coil_points(st + d * 0.27, sb - d * 0.11, 0.031, 7.5), 0.0048, segs=8)
     K.bm_tube(B.bm(G, "black"), sb - d * 0.12, sb - d * 0.09, 0.034, segs=20)
     K.bm_cyl(B.bm(G, "black"), K.axis_matrix(sb, (1, 0, 0)), 0.012, -0.015, 0.015, 14)
-    K.bm_tube(B.bm(G, "blue"), st + d * 0.205, st + d * 0.235, 0.034, segs=20)       # lock ring
+    K.bm_tube(B.bm(G, "shock"), st + d * 0.205, st + d * 0.235, 0.034, segs=20)       # lock ring
     K.bm_tube(B.bm(G, "alu"), st + d * 0.40 + perp * 0.036, st + d * 0.43 + perp * 0.036, 0.012, segs=12)
     K.bm_tube(B.bm(G, "rubber"), st + d * 0.50, st + d * 0.56, 0.013, segs=12)       # bump stop
     K.box_between(B.bm(G, "black"), sb - d * 0.09, sb, 0.034, 0.024, up=(0, 1, 0))  # clevis
@@ -486,10 +503,10 @@ def build_body(B):
     # foot pegs with teeth
     for s in (1, -1):
         c = P3(447, 463, s * 0.15)
-        K.bm_box(B.bm(G, "alu"), Matrix.Translation(c), 0.09, 0.045, 0.018)
+        K.bm_box(B.bm(G, "peg"), Matrix.Translation(c), 0.09, 0.045, 0.018)
         for k in range(5):
             for dy in (-0.019, 0.019):
-                K.bm_box(B.bm(G, "alu"), Matrix.Translation(c + Vector((s * (-0.036 + 0.018 * k), dy, 0.011))),
+                K.bm_box(B.bm(G, "peg"), Matrix.Translation(c + Vector((s * (-0.036 + 0.018 * k), dy, 0.011))),
                          0.006, 0.006, 0.008)
         K.box_between(B.bm(G, "frame"), P3(441, 455, s * 0.07), c - Vector((s * 0.04, 0, 0)), 0.03, 0.026)
         hinge = c - Vector((s * 0.047, 0, 0))
@@ -497,10 +514,18 @@ def build_body(B):
         K.bm_sweep(B.bm(G, "spring"), K.coil_points(hinge + Vector((0, -0.02, 0)), hinge + Vector((0, 0.02, 0)),
                                                     0.009, 4, 10), 0.0015, segs=5)
 
-    # kick stand (left side, folded)
-    K.bm_sweep(B.bm(G, "black"), K.catmull([P3(440, 457, 0.095), P3(478, 463, 0.11), P3(515, 468, 0.116)], 4),
-               0.0085, segs=8)
-    K.bm_box(B.bm(G, "black"), Matrix.Translation(P3(517, 469, 0.116)), 0.03, 0.02, 0.008)
+    # kick stand (left side): its own part pivoting at the hinge so it can swing down
+    KG = "Kickstand"
+    hinge = P3(442, 462, 0.10)
+    B.pivot(KG, hinge)
+    K.bm_cyl(B.bm(G, "frame"), K.axis_matrix(hinge - Vector((0.012, 0, 0)), (1, 0, 0)), 0.014, -0.006, 0.006, 16)
+    K.bm_cyl(B.bm(KG, "black"), K.axis_matrix(hinge, (1, 0, 0)), 0.012, -0.008, 0.008, 16)
+    leg = K.catmull([hinge, P3(470, 466, 0.106), P3(510, 470, 0.114), P3(549, 472, 0.12)], 4)
+    K.bm_sweep(B.bm(KG, "black"), leg, 0.0095, segs=10, radii=[K.lerp(0.0105, 0.008, i / (len(leg) - 1))
+                                                               for i in range(len(leg))])
+    K.bm_box(B.bm(KG, "black"), K.axis_matrix(P3(551, 472, 0.12), (0, 0, -1), hint=(0, 1, 0)), 0.034, 0.024, 0.008)
+    K.bm_sweep(B.bm(KG, "spring"), K.coil_points(hinge + Vector((0.012, 0.02, -0.004)), P3(470, 463, 0.09), 0.005,
+                                                  6, 8), 0.0013, segs=5)
     return rp_front
 
 
@@ -526,10 +551,11 @@ def build_swingarm(B, rp_front, rp_rear):
         K.bm_box(B.bm(G, "alu"), Matrix.Translation(REAR_AXLE + Vector((s * 0.096, 0.02, 0))), 0.008, 0.05, 0.026)
     B.slab_pair(G, "frame", [K.stadium2d(P(452, 400), P(452, 414), 0.016)], 0.006, 0.022)
     # stripe graphics on the left arm
-    for k in range(3):
+    for k in (range(3) if STYLE["graphics"] else []):
         B.slab(G, "graphic", [L(K.offset_polyline2d([(447, 404 + 5 * k), (505, 429 + 5 * k)], 1.8))],
                0.0008, x=0.0952)
-    B.slab(G, "graphic", [L([(528, 446), (560, 458), (557, 466), (525, 454)])], 0.0008, x=0.0952)
+    if STYLE["graphics"]:
+        B.slab(G, "graphic", [L([(528, 446), (560, 458), (557, 466), (525, 454)])], 0.0008, x=0.0952)
     # chain slider
     B.inflate(G, "black", [L([(440, 398), (470, 397), (500, 410), (496, 414), (468, 403), (440, 404)])],
               0.006, 0.015, 0.005, c=0.08)
@@ -568,7 +594,9 @@ def build_swingarm(B, rp_front, rp_rear):
                   pitch=0.0127)
 
 
-def build(B):
+def build(B, style=None):
+    if style:
+        STYLE.update(style)
     materials(B)
     rp_rear = build_wheels(B)
     build_steering(B)
