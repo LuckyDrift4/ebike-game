@@ -2,9 +2,6 @@
 -- inside the bike model. Rigs the bike, handles mounting and network ownership,
 -- and lets the bike roll to a stop after the rider gets off.
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-
 local kit = script.Parent
 local bike = kit.Parent :: Model
 local Config = require(kit:WaitForChild("Config"))
@@ -12,6 +9,8 @@ local Rig = require(kit:WaitForChild("Rig"))
 local Physics = require(kit:WaitForChild("Physics"))
 
 -- @body (everything below is shared with the single-file RideKit_Server.lua)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local rig = Rig.build(bike, Config)
 local seat: VehicleSeat = rig.seat

@@ -97,21 +97,20 @@ def body_of(fn):
 
 def single_files():
     """Copy-paste versions: one Script for the bike, one LocalScript for StarterPlayerScripts."""
-    # NOTE: paste-in files must start with code, not prose comment lines: if a
-    # paste drops the start of a comment line, the leftover text breaks the script.
+    # NOTE: paste-in files must survive a copy that loses the start of the file:
+    # they open with a long line of dashes (any tail of it is still a comment),
+    # never with prose, and every service is looked up where it is used.
+    guard = "-" * 160 + "\n\n"
     server = (
-        'local Players = game:GetService("Players")\n'
-        'local RunService = game:GetService("RunService")\n\n'
+        guard
         + inline("Config", "Config.lua") + inline("Rig", "Rig.lua") + inline("Physics", "Physics.lua")
         + "\nlocal bike = script.Parent :: Model\n\n" + body_of("BikeServer.server.lua"))
     client = (
-        'local Players = game:GetService("Players")\n'
-        'local RunService = game:GetService("RunService")\n'
-        'local ContextActionService = game:GetService("ContextActionService")\n'
-        'local CollectionService = game:GetService("CollectionService")\n\n'
+        guard
         + inline("Config", "Config.lua") + inline("Physics", "Physics.lua") + inline("Pose", "Pose.lua")
         + "\n" + body_of("BikeClient.client.lua")
-        + "\nfor _, b in ipairs(CollectionService:GetTagged(\"RideKitBike\")) do\n\ttask.spawn(runBike, b)\nend\n"
+        + "\nlocal CollectionService = game:GetService(\"CollectionService\")\n"
+        + "for _, b in ipairs(CollectionService:GetTagged(\"RideKitBike\")) do\n\ttask.spawn(runBike, b)\nend\n"
         "CollectionService:GetInstanceAddedSignal(\"RideKitBike\"):Connect(function(b)\n\ttask.spawn(runBike, b)\nend)\n")
     for name, text in (("RideKit_Server.lua", server), ("RideKit_Client.lua", client)):
         with open(os.path.join(HERE, name), "w", encoding="utf-8") as f:

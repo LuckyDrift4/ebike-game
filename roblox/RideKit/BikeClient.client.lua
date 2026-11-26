@@ -4,16 +4,15 @@
 --   * animates wheels, fork, suspension for everyone
 --   * poses the rider (R6) for everyone
 
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local ContextActionService = game:GetService("ContextActionService")
-
 local kit = script.Parent
 local Config = require(kit:WaitForChild("Config"))
 local Physics = require(kit:WaitForChild("Physics"))
 local Pose = require(kit:WaitForChild("Pose"))
 
 -- @body (everything below is shared with the single-file RideKit_Client.lua)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ContextActionService = game:GetService("ContextActionService")
 local function runBike(bike: Model)
 	if not bike:GetAttribute("RideKitReady") then
 		bike:GetAttributeChangedSignal("RideKitReady"):Wait()

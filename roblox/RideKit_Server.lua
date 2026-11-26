@@ -1,5 +1,4 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 local Config = (function()
 	-- RideKit settings. Tweak these in Studio while play-testing.
@@ -572,6 +571,8 @@ end)()
 local bike = script.Parent :: Model
 
 -- @body (everything below is shared with the single-file RideKit_Server.lua)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 local rig = Rig.build(bike, Config)
 local seat: VehicleSeat = rig.seat

@@ -1,7 +1,4 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local ContextActionService = game:GetService("ContextActionService")
-local CollectionService = game:GetService("CollectionService")
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 local Config = (function()
 	-- RideKit settings. Tweak these in Studio while play-testing.
@@ -438,6 +435,9 @@ local Pose = (function()
 end)()
 
 -- @body (everything below is shared with the single-file RideKit_Client.lua)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ContextActionService = game:GetService("ContextActionService")
 local function runBike(bike: Model)
 	if not bike:GetAttribute("RideKitReady") then
 		bike:GetAttributeChangedSignal("RideKitReady"):Wait()
@@ -574,6 +574,7 @@ local function runBike(bike: Model)
 	end)
 end
 
+local CollectionService = game:GetService("CollectionService")
 for _, b in ipairs(CollectionService:GetTagged("RideKitBike")) do
 	task.spawn(runBike, b)
 end
