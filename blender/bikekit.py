@@ -759,7 +759,11 @@ class Builder:
                 me.transform(Matrix.Translation(-pv))
                 for p in me.polygons:
                     p.use_smooth = True
-                me.set_sharp_from_angle(angle=math.radians(smooth_angle))
+                if hasattr(me, "set_sharp_from_angle"):       # Blender 4.1+
+                    me.set_sharp_from_angle(angle=math.radians(smooth_angle))
+                else:                                          # Blender 4.0 and older
+                    me.use_auto_smooth = True
+                    me.auto_smooth_angle = math.radians(smooth_angle)
                 me.materials.append(self.mats[mat])
                 ob = bpy.data.objects.new(name, me)
                 ob.location = pv
@@ -1115,12 +1119,28 @@ def reset_scene():
     sc.unit_settings.scale_length = 1.0
 
 
+def _denoise(sc):
+    """Use OpenImageDenoise when this Blender build has it (distro builds may not);
+    otherwise render noise-free the slow way with more samples."""
+    try:
+        import _cycles
+        has_oidn = bool(getattr(_cycles, "with_openimagedenoise", True))
+    except ImportError:
+        has_oidn = True
+    sc.cycles.use_denoising = has_oidn
+    if has_oidn:
+        sc.cycles.denoiser = 'OPENIMAGEDENOISE'
+    else:
+        sc.cycles.samples = max(sc.cycles.samples * 4, 256)
+        sc.cycles.adaptive_threshold = 0.02
+
+
 def setup_render(res=(1600, 1000), samples=64):
     sc = bpy.context.scene
     sc.render.engine = 'CYCLES'
     sc.cycles.device = 'CPU'
     sc.cycles.samples = samples
-    sc.cycles.use_denoising = True
+    _denoise(sc)
     sc.render.resolution_x, sc.render.resolution_y = res
     sc.render.film_transparent = False
     sc.view_settings.view_transform = 'Standard'
@@ -1183,7 +1203,7 @@ def setup_outdoor(samples=96, sun_elev=38.0, sun_rot=-40.0):
     sc.render.engine = 'CYCLES'
     sc.cycles.device = 'CPU'
     sc.cycles.samples = samples
-    sc.cycles.use_denoising = True
+    _denoise(sc)
     sc.view_settings.view_transform = 'AgX'
     sc.view_settings.look = 'AgX - Medium High Contrast'
     sc.view_settings.exposure = 0.35
@@ -1281,7 +1301,7 @@ def setup_hdri(path, rot_deg=0.0, strength=1.0, samples=128, exposure=0.0):
     sc.render.engine = 'CYCLES'
     sc.cycles.device = 'CPU'
     sc.cycles.samples = samples
-    sc.cycles.use_denoising = True
+    _denoise(sc)
     sc.view_settings.view_transform = 'AgX'
     sc.view_settings.look = 'AgX - Medium High Contrast'
     sc.view_settings.exposure = exposure

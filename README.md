@@ -90,7 +90,7 @@ repeatable:
   and GLB, writes the rig JSON, regenerates `roblox/BikeColors.lua` and renders
   the previews.
 
-With Blender 4.2 or newer:
+With Blender 4.0 or newer (tested with 4.0.2 and 5.3):
 
 ```bash
 blender --background --python blender/build.py -- surron varg
