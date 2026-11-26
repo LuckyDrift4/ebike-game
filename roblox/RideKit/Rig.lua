@@ -85,14 +85,14 @@ end
 Rig.extentAlong = extentAlong
 
 -- HumanoidRootPart height above the seat part's centre for an R6 rider:
--- as low as needed for the feet to reach the pegs, but hips no deeper than 0.45 into the seat
+-- as low as needed for the feet to reach the pegs, but hips no deeper than 0.25 into the seat
 function Rig.riderHeight(seatTopY: number, seatCenterY: number, pegY: number?, cfg): number
 	if type(cfg.SeatHeight) == "number" then
 		return seatTopY - seatCenterY + cfg.SeatHeight
 	end
 	local hipY = seatTopY + 0.05
 	if pegY then
-		hipY = math.clamp(pegY + 2 * 0.96, seatTopY - 0.45, seatTopY + 0.15)
+		hipY = math.clamp(pegY + 2 * 0.96, seatTopY - 0.25, seatTopY + 0.15)
 	end
 	return hipY + 1 - seatCenterY -- R6: HumanoidRootPart is 1 stud above the hips
 end

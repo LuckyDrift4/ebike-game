@@ -1,4 +1,4 @@
-// node run_pose_test.mjs  (needs: npm install @luau-rs/luau)
+// node run_pose_test.mjs [out.jsonl] [test.luau]   (needs: npm install @luau-rs/luau)
 // Prepends the CFrame/Vector3 stand-ins and RideKit's Config/Rig/Pose modules
 // to pose_test.luau and runs it.
 import { Lua } from '@luau-rs/luau';
@@ -14,7 +14,8 @@ const src =
   wrap('Config', path.join(kit, 'Config.lua')).replace(/Enum\.KeyCode\.\w+/g, '0') +
   wrap('Rig', path.join(kit, 'Rig.lua')) +
   wrap('Pose', path.join(kit, 'Pose.lua')) +
-  fs.readFileSync(path.join(here, 'pose_test.luau'), 'utf8');
+  wrap('Physics', path.join(kit, 'Physics.lua')) +
+  fs.readFileSync(path.join(here, process.argv[3] || 'pose_test.luau'), 'utf8');
 const lua = await Lua.create({ sandbox: false });
 const lines = [];
 lua.globals.set('print', lua.createFunction((...a) => { lines.push(a.map(String).join('\t')); }));

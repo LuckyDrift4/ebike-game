@@ -85,7 +85,7 @@ end
   bikeCF  : bike chassis CFrame (head looks along it)
   targets : { gripL, gripR, pegL, pegR } world positions
   p       : Config.Pose
-  s       : { throttle, steer, speed, maxSpeed, wheelie, bounce }
+  s       : { throttle, steer, speed, maxSpeed, wheelie, bounce, dt }
   returns : torso CFrame, hand and foot positions (for debugging/tests)
 ]]
 function Pose.solve(j, hrpCF: CFrame, bikeCF: CFrame, targets, p, s)
@@ -114,25 +114,34 @@ function Pose.solve(j, hrpCF: CFrame, bikeCF: CFrame, targets, p, s)
 	local root = j.Root
 	local roll = CFrame.fromAxisAngle(Vector3.zAxis, -p.TurnLean * turn)
 	local baseTwist = -p.TurnTwist * s.steer
-	local best, bestT, bestTorso = math.huge, nil, nil
+	local function torsoFor(extra: number, tw: number): (CFrame, CFrame)
+		local local_ = CFrame.fromAxisAngle(Vector3.yAxis, baseTwist + tw) * roll
+			* CFrame.fromAxisAngle(Vector3.xAxis, -(lean + extra))
+		local T = solve(root, hrpCF, hrpCF.Rotation * local_)
+		return T, hrpCF * root.C0 * T * root.C1:Inverse()
+	end
+	local best, bestExtra, bestTw = math.huge, 0, 0
 	for extra = -0.15, p.MaxExtraLean + 1e-6, 0.05 do
 		for tw = -0.6, 0.6 + 1e-6, 0.05 do
-			local local_ = CFrame.fromAxisAngle(Vector3.yAxis, baseTwist + tw) * roll
-				* CFrame.fromAxisAngle(Vector3.xAxis, -(lean + extra))
-			local T = solve(root, hrpCF, hrpCF.Rotation * local_)
-			local torso = hrpCF * root.C0 * T * root.C1:Inverse()
+			local _, torso = torsoFor(extra, tw)
 			local dR = (targets.gripR - torso * j.RS.C0.Position).Magnitude - armReach
 			local dL = (targets.gripL - torso * j.LS.C0.Position).Magnitude - armReach
 			local fR = math.max((targets.pegR - torso * j.RH.C0.Position).Magnitude - legReach, 0)
 			local fL = math.max((targets.pegL - torso * j.LH.C0.Position).Magnitude - legReach, 0)
 			local cost = dR * dR + dL * dL + 0.5 * (fR * fR + fL * fL) + 0.02 * extra * extra + 0.01 * tw * tw
 			if cost < best then
-				best, bestT, bestTorso = cost, T, torso
+				best, bestExtra, bestTw = cost, extra, tw
 			end
 		end
 	end
-	root.Transform = bestT
-	local torsoCF = bestTorso
+	-- glide towards the best stance instead of snapping (the search is coarse)
+	local mem = j.mem or { extra = bestExtra, tw = bestTw }
+	j.mem = mem
+	local a = if s.dt then 1 - math.exp(-12 * s.dt) else 1
+	mem.extra += (bestExtra - mem.extra) * a
+	mem.tw += (bestTw - mem.tw) * a
+	local rootT, torsoCF = torsoFor(mem.extra, mem.tw)
+	root.Transform = rootT
 
 	-- head: eyes level with the horizon (follows the bike's lean, not its pitch),
 	-- looking into the corner a little

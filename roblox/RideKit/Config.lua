@@ -24,8 +24,8 @@ local Config = {
 
 	-- suspension (raycast)
 	SuspensionTravel = 0.5,
-	SpringRate = 1.0, -- 1.0 = sits at half travel when parked
-	Damping = 0.45,
+	SpringRate = 1.0, -- 1.0 = sits at half travel; higher = stiffer
+	Damping = 1.0, -- 1.0 = critically damped (no bounce); lower = springier
 	AlignResponsiveness = 40,
 	ChassisDensity = 0.7,
 

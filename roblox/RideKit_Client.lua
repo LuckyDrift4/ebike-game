@@ -33,8 +33,8 @@ local Config = (function()
 
 		-- suspension (raycast)
 		SuspensionTravel = 0.5,
-		SpringRate = 1.0, -- 1.0 = sits at half travel when parked
-		Damping = 0.45,
+		SpringRate = 1.0, -- 1.0 = sits at half travel; higher = stiffer
+		Damping = 1.0, -- 1.0 = critically damped (no bounce); lower = springier
 		AlignResponsiveness = 40,
 		ChassisDensity = 0.7,
 
@@ -133,25 +133,39 @@ local Physics = (function()
 		local g = workspace.Gravity
 		local upv = ch.CFrame.UpVector
 		local travel = cfg.SuspensionTravel
-		local k = cfg.SpringRate * g / travel
-		local c = cfg.Damping * math.sqrt(2 * k)
+		local k = cfg.SpringRate * g / travel -- per wheel; two wheels hold the bike at half travel
+		local cd = cfg.Damping * math.sqrt(2 * k)
 
-		-- suspension: each wheel pushes the chassis up along its own up axis
+		-- suspension: implicit (backward-Euler) spring + damper along the bike's up axis.
+		-- A plain per-frame spring force lags the 240 Hz physics by a frame, which eats
+		-- the damping and makes the bike bounce; solving it implicitly is stable at any
+		-- frame rate and settles at ride height.
 		local hits = {}
 		local grounded = false
-		local push = 0
+		local n, C, rateSum, rateN = 0, 0, 0, 0
 		for i = 1, 2 do
 			local comp, hit = self:probe(i)
-			local vel = (comp - self.comp[i]) / dt
-			self.comp[i] = comp
 			if hit and comp > 0 then
 				hits[i] = hit
 				grounded = true
-				push += math.max(k * comp + c * vel, 0)
+				n += 1
+				C += comp + 3 * math.max(comp - travel, 0) -- stiff bump stop past full travel
+				if self.comp[i] > 0 then
+					rateSum += (comp - self.comp[i]) / dt
+					rateN += 1
+				end
+				self.comp[i] = comp
+			else
+				self.comp[i] = 0
 			end
 		end
-		if push > 0 then
-			ch:ApplyImpulse(upv * math.min(push, g * 6) * mass * dt)
+		if n > 0 then
+			local gUp = g * math.max(upv.Y, 0.2)
+			-- chassis speed along up, measured from how fast the springs extend
+			local vUp = if rateN > 0 then -rateSum / rateN else ch.AssemblyLinearVelocity:Dot(upv)
+			local vNew = (vUp + dt * (k * C - gUp)) / (1 + n * k * dt * dt + n * cd * dt)
+			local dv = math.clamp(vNew - vUp + gUp * dt, -g * dt * 2, g * dt * 8)
+			ch:ApplyImpulse(upv * dv * mass)
 		end
 
 		-- drive, brake and tyre grip in the heading frame
@@ -300,7 +314,7 @@ local Pose = (function()
 	  bikeCF  : bike chassis CFrame (head looks along it)
 	  targets : { gripL, gripR, pegL, pegR } world positions
 	  p       : Config.Pose
-	  s       : { throttle, steer, speed, maxSpeed, wheelie, bounce }
+	  s       : { throttle, steer, speed, maxSpeed, wheelie, bounce, dt }
 	  returns : torso CFrame, hand and foot positions (for debugging/tests)
 	]]
 	function Pose.solve(j, hrpCF: CFrame, bikeCF: CFrame, targets, p, s)
@@ -329,25 +343,34 @@ local Pose = (function()
 		local root = j.Root
 		local roll = CFrame.fromAxisAngle(Vector3.zAxis, -p.TurnLean * turn)
 		local baseTwist = -p.TurnTwist * s.steer
-		local best, bestT, bestTorso = math.huge, nil, nil
+		local function torsoFor(extra: number, tw: number): (CFrame, CFrame)
+			local local_ = CFrame.fromAxisAngle(Vector3.yAxis, baseTwist + tw) * roll
+				* CFrame.fromAxisAngle(Vector3.xAxis, -(lean + extra))
+			local T = solve(root, hrpCF, hrpCF.Rotation * local_)
+			return T, hrpCF * root.C0 * T * root.C1:Inverse()
+		end
+		local best, bestExtra, bestTw = math.huge, 0, 0
 		for extra = -0.15, p.MaxExtraLean + 1e-6, 0.05 do
 			for tw = -0.6, 0.6 + 1e-6, 0.05 do
-				local local_ = CFrame.fromAxisAngle(Vector3.yAxis, baseTwist + tw) * roll
-					* CFrame.fromAxisAngle(Vector3.xAxis, -(lean + extra))
-				local T = solve(root, hrpCF, hrpCF.Rotation * local_)
-				local torso = hrpCF * root.C0 * T * root.C1:Inverse()
+				local _, torso = torsoFor(extra, tw)
 				local dR = (targets.gripR - torso * j.RS.C0.Position).Magnitude - armReach
 				local dL = (targets.gripL - torso * j.LS.C0.Position).Magnitude - armReach
 				local fR = math.max((targets.pegR - torso * j.RH.C0.Position).Magnitude - legReach, 0)
 				local fL = math.max((targets.pegL - torso * j.LH.C0.Position).Magnitude - legReach, 0)
 				local cost = dR * dR + dL * dL + 0.5 * (fR * fR + fL * fL) + 0.02 * extra * extra + 0.01 * tw * tw
 				if cost < best then
-					best, bestT, bestTorso = cost, T, torso
+					best, bestExtra, bestTw = cost, extra, tw
 				end
 			end
 		end
-		root.Transform = bestT
-		local torsoCF = bestTorso
+		-- glide towards the best stance instead of snapping (the search is coarse)
+		local mem = j.mem or { extra = bestExtra, tw = bestTw }
+		j.mem = mem
+		local a = if s.dt then 1 - math.exp(-12 * s.dt) else 1
+		mem.extra += (bestExtra - mem.extra) * a
+		mem.tw += (bestTw - mem.tw) * a
+		local rootT, torsoCF = torsoFor(mem.extra, mem.tw)
+		root.Transform = rootT
 
 		-- head: eyes level with the horizon (follows the bike's lean, not its pitch),
 		-- looking into the corner a little
@@ -456,6 +479,7 @@ local function runBike(bike: Model)
 	local riderJoints, riderChar = nil, nil
 	local tookOver = false
 	local poseBounce = 0
+	local offF, offR = 0, 0
 
 	local conn
 	conn = RunService.Stepped:Connect(function(_, dt)
@@ -497,8 +521,10 @@ local function runBike(bike: Model)
 		steerVis += (steerTarget - steerVis) * (1 - math.exp(-12 * dt))
 		local compF, hitF = physics:probe(1)
 		local compR, hitR = physics:probe(2)
-		local offF = math.clamp(compF - travel * 0.5, -travel * 0.5, travel * 0.8)
-		local offR = math.clamp(compR - travel * 0.5, -travel * 0.5, travel * 0.8)
+		-- wheel travel shown on the forks / swingarm, lightly smoothed
+		local smooth = 1 - math.exp(-30 * dt)
+		offF += (math.clamp(compF - travel * 0.5, -travel * 0.5, travel * 0.8) - offF) * smooth
+		offR += (math.clamp(compR - travel * 0.5, -travel * 0.5, travel * 0.8) - offR) * smooth
 		steerMotor.Transform = CFrame.Angles(0, -steerVis, 0)
 		frontHubMotor.Transform = CFrame.new(0, offF, 0) * CFrame.Angles(-spinF, 0, 0)
 		swingMotor.Transform = CFrame.Angles(-math.asin(math.clamp(offR / armLen, -0.5, 0.5)), 0, 0)
@@ -508,6 +534,7 @@ local function runBike(bike: Model)
 		if char ~= riderChar then
 			if riderJoints then
 				Pose.clear(riderJoints)
+				riderJoints.mem = nil
 			end
 			if tookOver and riderChar then
 				Pose.release(riderChar)
@@ -544,6 +571,7 @@ local function runBike(bike: Model)
 				maxSpeed = Config.MaxSpeed,
 				wheelie = if wheelieAngle > 0.12 then wheelieAngle else 0,
 				bounce = -poseBounce,
+				dt = dt,
 			})
 		end
 	end)

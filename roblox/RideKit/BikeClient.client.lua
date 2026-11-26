@@ -52,6 +52,7 @@ local function runBike(bike: Model)
 	local riderJoints, riderChar = nil, nil
 	local tookOver = false
 	local poseBounce = 0
+	local offF, offR = 0, 0
 
 	local conn
 	conn = RunService.Stepped:Connect(function(_, dt)
@@ -93,8 +94,10 @@ local function runBike(bike: Model)
 		steerVis += (steerTarget - steerVis) * (1 - math.exp(-12 * dt))
 		local compF, hitF = physics:probe(1)
 		local compR, hitR = physics:probe(2)
-		local offF = math.clamp(compF - travel * 0.5, -travel * 0.5, travel * 0.8)
-		local offR = math.clamp(compR - travel * 0.5, -travel * 0.5, travel * 0.8)
+		-- wheel travel shown on the forks / swingarm, lightly smoothed
+		local smooth = 1 - math.exp(-30 * dt)
+		offF += (math.clamp(compF - travel * 0.5, -travel * 0.5, travel * 0.8) - offF) * smooth
+		offR += (math.clamp(compR - travel * 0.5, -travel * 0.5, travel * 0.8) - offR) * smooth
 		steerMotor.Transform = CFrame.Angles(0, -steerVis, 0)
 		frontHubMotor.Transform = CFrame.new(0, offF, 0) * CFrame.Angles(-spinF, 0, 0)
 		swingMotor.Transform = CFrame.Angles(-math.asin(math.clamp(offR / armLen, -0.5, 0.5)), 0, 0)
@@ -104,6 +107,7 @@ local function runBike(bike: Model)
 		if char ~= riderChar then
 			if riderJoints then
 				Pose.clear(riderJoints)
+				riderJoints.mem = nil
 			end
 			if tookOver and riderChar then
 				Pose.release(riderChar)
@@ -140,6 +144,7 @@ local function runBike(bike: Model)
 				maxSpeed = Config.MaxSpeed,
 				wheelie = if wheelieAngle > 0.12 then wheelieAngle else 0,
 				bounce = -poseBounce,
+				dt = dt,
 			})
 		end
 	end)

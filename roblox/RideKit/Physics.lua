@@ -61,25 +61,39 @@ function Physics:step(dt: number, throttle: number, steer: number, wheelieHeld: 
 	local g = workspace.Gravity
 	local upv = ch.CFrame.UpVector
 	local travel = cfg.SuspensionTravel
-	local k = cfg.SpringRate * g / travel
-	local c = cfg.Damping * math.sqrt(2 * k)
+	local k = cfg.SpringRate * g / travel -- per wheel; two wheels hold the bike at half travel
+	local cd = cfg.Damping * math.sqrt(2 * k)
 
-	-- suspension: each wheel pushes the chassis up along its own up axis
+	-- suspension: implicit (backward-Euler) spring + damper along the bike's up axis.
+	-- A plain per-frame spring force lags the 240 Hz physics by a frame, which eats
+	-- the damping and makes the bike bounce; solving it implicitly is stable at any
+	-- frame rate and settles at ride height.
 	local hits = {}
 	local grounded = false
-	local push = 0
+	local n, C, rateSum, rateN = 0, 0, 0, 0
 	for i = 1, 2 do
 		local comp, hit = self:probe(i)
-		local vel = (comp - self.comp[i]) / dt
-		self.comp[i] = comp
 		if hit and comp > 0 then
 			hits[i] = hit
 			grounded = true
-			push += math.max(k * comp + c * vel, 0)
+			n += 1
+			C += comp + 3 * math.max(comp - travel, 0) -- stiff bump stop past full travel
+			if self.comp[i] > 0 then
+				rateSum += (comp - self.comp[i]) / dt
+				rateN += 1
+			end
+			self.comp[i] = comp
+		else
+			self.comp[i] = 0
 		end
 	end
-	if push > 0 then
-		ch:ApplyImpulse(upv * math.min(push, g * 6) * mass * dt)
+	if n > 0 then
+		local gUp = g * math.max(upv.Y, 0.2)
+		-- chassis speed along up, measured from how fast the springs extend
+		local vUp = if rateN > 0 then -rateSum / rateN else ch.AssemblyLinearVelocity:Dot(upv)
+		local vNew = (vUp + dt * (k * C - gUp)) / (1 + n * k * dt * dt + n * cd * dt)
+		local dv = math.clamp(vNew - vUp + gUp * dt, -g * dt * 2, g * dt * 8)
+		ch:ApplyImpulse(upv * dv * mass)
 	end
 
 	-- drive, brake and tyre grip in the heading frame
