@@ -23,6 +23,6 @@ try { lua.execute(src); } catch (e) { console.log('LUA ERROR:', e.message || e);
 const out = process.argv[2];
 if (out) fs.writeFileSync(out, lines.filter(l => l.startsWith('CASE ')).map(l => l.slice(5)).join('\n') + '\n');
 // solved joint transforms -> used by build_ridekit.py for the Animation Editor pose
-fs.writeFileSync(path.join(here, 'ride_pose_transforms.json'),
-  '[\n' + lines.filter(l => l.startsWith('XFORM ')).map(l => l.slice(6)).join(',\n') + '\n]\n');
+const xforms = lines.filter(l => l.startsWith('XFORM ')).map(l => l.slice(6));
+if (xforms.length) fs.writeFileSync(path.join(here, 'ride_pose_transforms.json'), '[\n' + xforms.join(',\n') + '\n]\n');
 for (const l of lines) if (!l.startsWith('CASE ') && !l.startsWith('XFORM ')) console.log(l);
