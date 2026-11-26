@@ -7,9 +7,10 @@ the static, anchored bike into a rideable one:
   wheelies, on raycast suspension.
 - **Moving parts:** the wheels spin, the fork and bars turn, the front fork
   compresses and the swingarm moves with the suspension.
-- **Rider animation:** an R6 riding pose done in code, with hands on the
-  grips, feet on the pegs, a tuck under acceleration, leaning into turns,
-  leaning back on wheelies, and the head up at speed. Everyone sees it and
+- **Rider animation:** made in Blender (`blender/anim/ride_anims.blend`).
+  There are six keyframed R6 clips: ride, tuck, brake, lean left, lean right
+  and wheelie. RideKit plays the Blender keyframes and blends between the clips
+  with throttle, brake, steering and wheelie. Every client plays them, so
   nothing needs uploading.
 
 It works with both bike models:
@@ -84,16 +85,19 @@ script):
 The R6 default `Animate` script would fight the pose while seated, so it is
 paused for the local rider while riding and turned back on when they get off.
 
-## Optional: the pose as an Animation Editor animation
+## Optional: the clips in the Animation Editor
 
-`RidePose_R6.rbxmx` is the same riding pose as a looping KeyframeSequence.
-Use it to preview the pose on a dummy, or to publish an animation ID:
+`RideAnims_R6.rbxmx` holds the same Blender clips as KeyframeSequences, named
+`RideRide`, `RideTuck`, `RideBrake`, `RideLeanRight`, `RideLeanLeft` and
+`RideWheelie`.
 
-1. Insert it into your R6 dummy (`Rig`), then move it into a folder named
-   `AnimSaves` inside the rig. Create the folder if it isn't there.
-2. Open the Animation Editor, select the rig, then use **...** > **Load** >
-   `RidePose_R6`.
-3. To get an animation ID, use **...** > **Publish to Roblox**.
+1. Insert the file into your R6 dummy (`Rig`), then move the sequences into a
+   folder named `AnimSaves` inside the rig. Create the folder if it isn't there.
+2. Open the Animation Editor, select the rig, and load them from the **...**
+   menu.
+
+RideKit doesn't need them. They're there in case you want to edit the clips or
+publish them yourself.
 
 ## Notes
 

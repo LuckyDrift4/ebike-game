@@ -18,7 +18,7 @@ local Config = {
 	CoastDecel = 5,
 	SteerRate = 2.4, -- heading change (rad/s) at full lock
 	FullTurnSpeed = 10, -- below this speed steering is weaker (a bike can't turn on the spot)
-	MaxSteerAngle = 30, -- visual fork angle at walking pace (less at speed)
+	MaxSteerAngle = 17, -- visual bar angle at walking pace (less at speed; the lean clips are posed at 14)
 	MaxLean = 35, -- lean into corners at speed
 	LeanFullSpeed = 30,
 	LeanResponse = 6,
@@ -27,7 +27,8 @@ local Config = {
 	-- suspension (raycast)
 	SuspensionTravel = 0.5,
 	SpringRate = 1.0, -- 1.0 = sits at half travel; higher = stiffer
-	Damping = 1.0, -- 1.0 = critically damped (no bounce); lower = springier
+	Damping = 0.75, -- 1.0 = no rebound at all; lower = springier (stays stable)
+	WeightTransfer = 0.0012, -- nose dive under braking / squat under throttle (rad per stud/s²)
 	AlignResponsiveness = 40,
 	ChassisDensity = 0.7,
 
@@ -43,22 +44,10 @@ local Config = {
 	GripInset = 0.25, -- hands sit this far in from the ends of the handlebar
 	PegInset = 0.15, -- feet sit this far in from the ends of the foot-peg bar
 
-	-- rider pose (radians). Hands are aimed at the grips and feet at the pegs
-	-- automatically; these only shape the body around them.
-	Pose = {
-		TorsoLean = 0.30, -- leaning forward over the bars
-		TorsoLeanThrottle = 0.10, -- extra tuck when accelerating
-		TorsoLeanSpeed = 0.08, -- extra tuck at top speed
-		BrakeLeanBack = 0.12,
-		WheelieLeanBack = 0.30,
-		MaxExtraLean = 0.45, -- lean up to this much further when the grips are out of reach
-		TurnLean = 0.18, -- rider leans further into the corner than the bike
-		TurnTwist = 0.15, -- shoulders follow the bars (fine-tuned automatically so both hands reach)
-		HeadTurn = 0.30, -- look into the corner
-		HeadDown = 0.10, -- slight chin-down when slow
-		HeadUp = 0.10, -- look further ahead at speed
-		Bounce = 0.04, -- body bob from the suspension
-	},}
+	-- rider animation (keyframed in Blender: blender/anim/ride_anims.blend)
+	AnimBlendSpeed = 7, -- how fast the rider moves between ride / tuck / brake / lean / wheelie
+	Pose = { TorsoLean = 0.35 }, -- forward lean the seat position is fitted for (matches the Blender clips)
+}
 
 return Config
 ]]></ProtectedString></Properties></Item>
@@ -68,6 +57,7 @@ return Config
 -- that group's root:
 --   body        -> RideKit_Chassis   (invisible physics box, carries everything)
 --   steer       -> RideKit_SteerPivot (forks, bars, levers; turns about the steering axis)
+--   frontSlide  -> RideKit_FrontSlider (fork lowers / axle bits: steer + slide with the fork, no spin)
 --   frontSpin   -> RideKit_FrontHub   (front wheel mesh; spins, steers, compresses)
 --   swing       -> RideKit_SwingPivot (swingarm, chain, mudguard; pivots with the suspension)
 --   rearSpin    -> RideKit_RearHub    (rear wheel mesh; spins)
@@ -119,7 +109,7 @@ local function lineDistance(p: Vector3, a: Vector3, d: Vector3): (number, number
 end
 
 --[[ Which group a part belongs to.
-  info: { name, pos, isFront, isRear, inFront, inRear, ancestors = { {name=, class=}, ... } }
+  info: { name, pos, isFront, isRear, inFront, inRear, parentIsFront, ancestors = { {name=, class=}, ... } }
   ctx : { frontPos, rearPos, radF, radR, steerPos, steerAxis, swingPos, fwd }
 ]]
 function Rig.classify(info, ctx): string
@@ -134,7 +124,21 @@ function Rig.classify(info, ctx): string
 	elseif (pos - ctx.rearPos).Magnitude < ctx.radR * 0.3 then
 		return "rearSpin"
 	end
-	if info.inFront or hasWord(info.name, STEER_WORDS) then
+	if info.inFront then
+		-- parts hung straight off the front wheel, or in its WheelFixed / SuspensionFixed
+		-- model, are fork lowers: they slide with the wheel when the fork compresses
+		if info.parentIsFront then
+			return "frontSlide"
+		end
+		for _, a in ipairs(info.ancestors) do
+			local n = string.lower(a.name)
+			if n == "wheelfixed" or n == "suspensionfixed" then
+				return "frontSlide"
+			end
+		end
+		return "steer"
+	end
+	if hasWord(info.name, STEER_WORDS) then
 		return "steer"
 	end
 	for _, a in ipairs(info.ancestors) do
@@ -236,35 +240,44 @@ function Rig.riderSetup(d, cfg)
 		seatTop = seatPos:Dot(up) - 0.1
 		seatHalfLen = 0.8
 	end
-	-- height: R6 hips 1 stud below the HumanoidRootPart, legs 2 studs
-	local pegY = (d.pegL:Dot(up) + d.pegR:Dot(up)) / 2
-	local hipY
-	if type(cfg.SeatHeight) == "number" then
-		hipY = seatTop + cfg.SeatHeight - 1
-	else
-		hipY = math.clamp(pegY + 2 * 0.96, seatTop - 0.25, seatTop + 0.15)
-	end
-	local riderUp = hipY + 1 - seatPos:Dot(up)
-	-- fore-aft: slide forward along the seat until the hands can reach the grips
-	local forward = cfg.SeatForward
-	if type(forward) ~= "number" then
-		local lean = cfg.Pose.TorsoLean + 0.15
-		local reach = math.sqrt(0.5 * 0.5 + 1.5 * 1.5) * 0.97 -- R6 shoulder joint -> hand
-		local maxF = math.max(seatHalfLen - 0.15, 0)
-		forward = maxF
-		for f = 0, maxF + 1e-6, 0.05 do
-			local hrp = seatPos + up * riderUp + fwd * f
-			local shoulder = hrp + up * (0.5 * math.cos(lean)) + fwd * (0.5 * math.sin(lean))
-			local farGrip = math.max(
-				(gripL - (shoulder - right * 1)).Magnitude,
-				(gripR - (shoulder + right * 1)).Magnitude
-			)
-			if farGrip <= reach then
-				forward = f
-				break
+	-- R6 rider: HumanoidRootPart = torso centre, shoulders 0.5 above it (arms reach 1.5 to the
+	-- hands, which sit 0.5 outboard), hips 1 below it (legs reach 2 to the feet, 0.5 inboard).
+	-- Search the seat position (forward along the seat, hip height) where a natural forward
+	-- lean puts the hands on the grips and the feet near the pegs.
+	local lean = cfg.Pose.TorsoLean
+	local sL, cL = math.sin(lean), math.cos(lean)
+	local aimR, aimL = gripR - right * 0.5, gripL + right * 0.5
+	local footR, footL = d.pegR + right * 0.5, d.pegL - right * 0.5
+	local fixedF = type(cfg.SeatForward) == "number"
+	local fixedH = type(cfg.SeatHeight) == "number"
+	local best, bestF, bestHip = math.huge, 0, seatTop
+	local fMax = if fixedF then cfg.SeatForward else seatHalfLen + 0.3
+	local f0 = if fixedF then cfg.SeatForward else 0
+	local h0 = if fixedH then seatTop + cfg.SeatHeight - 1 else seatTop - 0.3
+	local h1 = if fixedH then h0 else seatTop + 0.15
+	for f = f0, fMax + 1e-6, 0.05 do
+		for hipY = h0, h1 + 1e-6, 0.05 do
+			local base = seatPos + fwd * f
+			local hrp = base + up * (hipY + 1 - seatPos:Dot(up))
+			local sh = hrp + up * (0.5 * cL) + fwd * (0.5 * sL)
+			local hip = hrp - up * cL - fwd * sL
+			local eR = (aimR - (sh + right)).Magnitude - 1.5
+			local eL = (aimL - (sh - right)).Magnitude - 1.5
+			local lR = (footR - (hip + right)).Magnitude - 2
+			local lL = (footL - (hip - right)).Magnitude - 2
+			local function leg(e)
+				return if e > 0 then e * e else 0.3 * e * e -- dangling short is worse than overshoot
+			end
+			local cost = 4 * (eR * eR + eL * eL) + leg(lR) + leg(lL)
+				+ 2 * math.max(0, f - seatHalfLen) ^ 2 -- prefer sitting on the seat
+				+ 2 * math.max(0, seatTop - 0.1 - hipY) ^ 2 -- and not sunk into it
+			if cost < best then
+				best, bestF, bestHip = cost, f, hipY
 			end
 		end
 	end
+	local forward = bestF
+	local riderUp = bestHip + 1 - seatPos:Dot(up)
 	return {
 		gripL = gripL,
 		gripR = gripR,
@@ -414,11 +427,13 @@ function Rig.build(bike: Model, cfg)
 	align.Parent = chassis
 
 	local steerPivot = helper("RideKit_SteerPivot", CFrame.fromMatrix(steerPos, right, steerAxis), bike)
+	local frontSlider = helper("RideKit_FrontSlider", CFrame.fromMatrix(front.Position, right, steerAxis), bike)
 	local frontHub = helper("RideKit_FrontHub", CFrame.fromMatrix(front.Position, right, up), bike)
 	local swingPivot = helper("RideKit_SwingPivot", CFrame.fromMatrix(swingPos, right, up), bike)
 	local rearHub = helper("RideKit_RearHub", CFrame.fromMatrix(rear.Position, right, up), bike)
 	motor("RideKit_SteerMotor", chassis, steerPivot)
-	motor("RideKit_FrontHubMotor", steerPivot, frontHub)
+	motor("RideKit_FrontSlideMotor", steerPivot, frontSlider) -- slides along the steering axis
+	motor("RideKit_FrontHubMotor", frontSlider, frontHub) -- spins
 	motor("RideKit_SwingMotor", chassis, swingPivot)
 	motor("RideKit_RearHubMotor", swingPivot, rearHub)
 
@@ -426,6 +441,7 @@ function Rig.build(bike: Model, cfg)
 	local ours = {
 		[chassis] = true,
 		[steerPivot] = true,
+		[frontSlider] = true,
 		[frontHub] = true,
 		[swingPivot] = true,
 		[rearHub] = true,
@@ -442,8 +458,15 @@ function Rig.build(bike: Model, cfg)
 		right = right,
 		up = up,
 	}
-	local roots = { body = chassis, steer = steerPivot, frontSpin = frontHub, swing = swingPivot, rearSpin = rearHub }
-	local counts = { body = 0, steer = 0, frontSpin = 0, swing = 0, rearSpin = 0 }
+	local roots = {
+		body = chassis,
+		steer = steerPivot,
+		frontSlide = frontSlider,
+		frontSpin = frontHub,
+		swing = swingPivot,
+		rearSpin = rearHub,
+	}
+	local counts = { body = 0, steer = 0, frontSlide = 0, frontSpin = 0, swing = 0, rearSpin = 0 }
 	local bar: BasePart? = nil -- widest steering part = handlebar
 	local barWidth = 0
 	local bodyParts = {}
@@ -458,6 +481,7 @@ function Rig.build(bike: Model, cfg)
 			isRear = part == rear,
 			inFront = part:IsDescendantOf(front),
 			inRear = part:IsDescendantOf(rear),
+			parentIsFront = part.Parent == front,
 			ancestors = ancestorsOf(part, bike),
 		}, ctx)
 		if group == "steer" then
@@ -544,7 +568,8 @@ function Rig.build(bike: Model, cfg)
 	bike:SetAttribute("RideKitReady", true)
 
 	print(
-		`RideKit: {bike.Name} rigged. body {counts.body}, steering {counts.steer}, front wheel {counts.frontSpin}, `
+		`RideKit: {bike.Name} rigged. body {counts.body}, steering {counts.steer}, fork lowers {counts.frontSlide}, `
+			.. `front wheel {counts.frontSpin}, `
 			.. `swingarm {counts.swing}, rear wheel {counts.rearSpin} parts. `
 			.. `Grips from "{if bar then bar.Name else "(guessed)"}", seat "{if seatRef then seatRef.name else "(guessed)"}", `
 			.. `rider {string.format("%.2f", rider.forward)} forward`
@@ -586,6 +611,8 @@ function Physics:resetHeading()
 	self.pitch = 0
 	self.roll = 0
 	self.wheelie = 0
+	self.accel = 0
+	self.lastVF = nil
 end
 
 function Physics:setIgnore(list: { Instance })
@@ -700,217 +727,163 @@ function Physics:step(dt: number, throttle: number, steer: number, wheelieHeld: 
 		targetPitch = self.pitch * (1 - dt * 0.4)
 	end
 	self.pitch += (targetPitch - self.pitch) * (1 - math.exp(-10 * dt))
+	-- weight transfer: nose dives under braking, squats under acceleration
+	if self.lastVF then
+		local a = (vF - self.lastVF) / dt
+		self.accel += (a - self.accel) * (1 - math.exp(-8 * dt))
+	end
+	self.lastVF = vF
+	local transfer = if grounded then math.clamp(self.accel * cfg.WeightTransfer, -0.07, 0.05) else 0
 	local wantWheelie = wheelieHeld and hits[2] ~= nil and vF > cfg.WheelieMinSpeed and throttle > 0.3
 	local wTarget = if wantWheelie then math.rad(cfg.WheelieAngle) else 0
 	self.wheelie += (wTarget - self.wheelie) * (1 - math.exp(-(if wantWheelie then 2.5 else 4) * dt))
 
-	self.align.CFrame = CFrame.fromEulerAnglesYXZ(self.pitch + self.wheelie, self.yaw, self.roll)
+	self.align.CFrame = CFrame.fromEulerAnglesYXZ(self.pitch + self.wheelie + transfer, self.yaw, self.roll)
 	return vF
 end
 
 return Physics
 ]]></ProtectedString></Properties></Item>
-<Item class="ModuleScript" referent="RBX4"><Properties><string name="Name">Pose</string><ProtectedString name="Source"><![CDATA[-- RideKit.Pose: procedural R6 riding pose. Every client poses every rider, so it
--- needs no uploaded animation and looks the same for everyone.
---
--- Instead of guessing joint angles, each limb is AIMED at a real point on the
--- bike: hands at the handlebar grips (which follow the steering), feet at the
--- foot pegs, head looking down the road. Joint transforms are then solved from
---   Part1.CFrame = Part0.CFrame * C0 * Transform * C1:Inverse()
--- using the joints' own C0/C1, so the result is right for any standard R6 rig.
---
--- The R6 "Animate" script poses seated characters by spinning the shoulder and
--- hip Motors (DesiredAngle / CurrentAngle), which would add on top of this, so
--- those angles are zeroed every frame (and the local rider's Animate script is
--- paused by the client while riding).
+<Item class="ModuleScript" referent="RBX4"><Properties><string name="Name">AnimPlayer</string><ProtectedString name="Source"><![CDATA[-- RideKit.AnimPlayer: plays the R6 riding animations made in Blender
+-- (blender/anim/ride_anims.blend -> roblox/anim/ride_anims.json -> AnimData).
+-- No pose is computed here: it samples the Blender keyframes, blends the clips
+-- (ride + tuck / brake / lean left / lean right / wheelie) by riding state, and
+-- writes the result to the rider's Motor6D.Transform on every client.
 
-local Pose = {}
+local AnimPlayer = {}
 
-local JOINTS = {
-	Root = { "HumanoidRootPart", "RootJoint" },
-	Neck = { "Torso", "Neck" },
-	RS = { "Torso", "Right Shoulder" },
-	LS = { "Torso", "Left Shoulder" },
-	RH = { "Torso", "Right Hip" },
-	LH = { "Torso", "Left Hip" },
+-- Blender bone (= R6 part) -> R6 joint that moves it
+local JOINT_OF = {
+	Torso = { "HumanoidRootPart", "RootJoint" },
+	Head = { "Torso", "Neck" },
+	["Right Arm"] = { "Torso", "Right Shoulder" },
+	["Left Arm"] = { "Torso", "Left Shoulder" },
+	["Right Leg"] = { "Torso", "Right Hip" },
+	["Left Leg"] = { "Torso", "Left Hip" },
 }
-local KEYS = { "Root", "Neck", "RS", "LS", "RH", "LH" }
+local PARTS = { "Torso", "Head", "Right Arm", "Left Arm", "Right Leg", "Left Leg" }
 
--- returns the R6 joints + limb sizes, or nil for R15 / incomplete characters
-function Pose.joints(character: Model)
+-- AnimData quaternions -> CFrames, once
+function AnimPlayer.prepare(data)
+	local clips = {}
+	for name, c in pairs(data.clips) do
+		local frames = {}
+		for _, k in ipairs(c.keys) do
+			local pose = {}
+			for _, part in ipairs(PARTS) do
+				local q = k.pose[part]
+				pose[part] = CFrame.new(0, 0, 0, q[1], q[2], q[3], q[4])
+			end
+			table.insert(frames, { t = k.t, pose = pose })
+		end
+		clips[name] = { length = c.length, loop = c.loop, frames = frames, steer = c.steer }
+	end
+	return clips
+end
+
+-- pose of a clip at time t (seconds), interpolating between keys
+function AnimPlayer.sample(clip, t: number)
+	local frames = clip.frames
+	if #frames == 1 or clip.length <= 0 then
+		return frames[1].pose
+	end
+	t = if clip.loop then t % clip.length else math.clamp(t, 0, clip.length)
+	for i = 1, #frames - 1 do
+		local a, b = frames[i], frames[i + 1]
+		if t <= b.t then
+			local u = if b.t > a.t then (t - a.t) / (b.t - a.t) else 0
+			u = u * u * (3 - 2 * u) -- ease between keys
+			local out = {}
+			for _, part in ipairs(PARTS) do
+				out[part] = a.pose[part]:Lerp(b.pose[part], u)
+			end
+			return out
+		end
+	end
+	return frames[#frames].pose
+end
+
+-- blend pose `over` on top of `base` with weight w (0..1)
+function AnimPlayer.blend(base, over, w: number)
+	if w <= 1e-3 then
+		return base
+	end
+	local out = {}
+	for _, part in ipairs(PARTS) do
+		out[part] = base[part]:Lerp(over[part], math.min(w, 1))
+	end
+	return out
+end
+
+--[[ Full riding pose.
+  clips  : from prepare
+  t      : time in seconds (for the looping ride clip)
+  w      : smoothed weights { tuck, brake, leanR, leanL, wheelie } (0..1) ]]
+function AnimPlayer.pose(clips, t: number, w)
+	local pose = AnimPlayer.sample(clips.Ride, t)
+	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.Tuck, t), w.tuck)
+	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.Brake, t), w.brake)
+	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.LeanRight, t), w.leanR)
+	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.LeanLeft, t), w.leanL)
+	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.Wheelie, t), w.wheelie)
+	return pose
+end
+
+-- R6 joints of a character (nil for R15)
+function AnimPlayer.joints(character: Model)
 	local hum = character:FindFirstChildOfClass("Humanoid")
 	if not hum or hum.RigType ~= Enum.HumanoidRigType.R6 then
 		return nil
 	end
 	local j = {}
-	for key, path in pairs(JOINTS) do
-		local part = character:FindFirstChild(path[1])
-		local m = part and part:FindFirstChild(path[2])
+	for part, path in pairs(JOINT_OF) do
+		local p0 = character:FindFirstChild(path[1])
+		local m = p0 and p0:FindFirstChild(path[2])
 		if not (m and m:IsA("Motor6D")) then
 			return nil
 		end
-		j[key] = m
+		j[part] = m
 	end
-	j.hrp = character:FindFirstChild("HumanoidRootPart")
-	local arm = character:FindFirstChild("Right Arm")
-	local leg = character:FindFirstChild("Right Leg")
-	j.armLen = if arm and arm:IsA("BasePart") then arm.Size.Y else 2
-	j.legLen = if leg and leg:IsA("BasePart") then leg.Size.Y else 2
 	return j
 end
 
--- limb-space vector from the joint (C1 position) to the hand / foot
-local function tipOf(m, len: number): Vector3
-	return Vector3.new(0, -len / 2, 0) - m.C1.Position
-end
-
--- rotation that points a limb from world point `joint` at `target`, keeping the
--- limb's X axis close to `rightHint` (no corkscrew twist)
-local function aimLimb(joint: Vector3, target: Vector3, tip: Vector3, rightHint: Vector3): CFrame
-	local d = target - joint
-	local R = CFrame.new()
-	for _ = 1, 3 do
-		if d.Magnitude < 1e-4 then
-			break
-		end
-		local y = -d.Unit -- limb +Y runs from the hand back up to the joint
-		local x = rightHint - y * rightHint:Dot(y)
-		if x.Magnitude < 1e-3 then
-			x = y:Cross(Vector3.zAxis)
-		end
-		R = CFrame.fromMatrix(Vector3.zero, x.Unit, y)
-		-- the hand sits off the limb axis (tip.X / tip.Z): aim the axis so the hand lands on target
-		local side = R:VectorToWorldSpace(Vector3.new(tip.X, 0, tip.Z))
-		d = target - side - joint
-	end
-	return R
-end
-
--- Transform that gives Part1 the world rotation `childRot` under Part0 at `parentCF`
-local function solve(m, parentCF: CFrame, childRot: CFrame): CFrame
-	return m.C0.Rotation:Inverse() * parentCF.Rotation:Inverse() * childRot * m.C1.Rotation
-end
-
---[[
-  j       : from Pose.joints (motors + hrp + limb sizes)
-  hrpCF   : HumanoidRootPart CFrame (welded to the seat)
-  bikeCF  : bike chassis CFrame (head looks along it)
-  targets : { gripL, gripR, pegL, pegR } world positions
-  p       : Config.Pose
-  s       : { throttle, steer, speed, maxSpeed, wheelie, bounce, dt }
-  returns : torso CFrame, hand and foot positions (for debugging/tests)
-]]
-function Pose.solve(j, hrpCF: CFrame, bikeCF: CFrame, targets, p, s)
-	for _, key in ipairs(KEYS) do
-		local m = j[key]
+-- write a pose to the joints. The R6 Animate script poses seated characters by
+-- spinning the shoulder/hip Motors (DesiredAngle/CurrentAngle), which would add
+-- on top, so those are zeroed too.
+function AnimPlayer.apply(j, pose)
+	for _, part in ipairs(PARTS) do
+		local m = j[part]
 		m.MaxVelocity = 0
 		m.DesiredAngle = 0
 		m.CurrentAngle = 0
+		m.Transform = pose[part]
 	end
-
-	local speedFrac = math.clamp(math.abs(s.speed) / s.maxSpeed, 0, 1)
-	local turn = s.steer * math.clamp(math.abs(s.speed) / 15, 0.3, 1)
-	local lean = p.TorsoLean
-		+ p.TorsoLeanThrottle * math.max(s.throttle, 0)
-		+ p.TorsoLeanSpeed * speedFrac
-		- p.BrakeLeanBack * math.max(-s.throttle, 0) * (if s.speed > 1 then 1 else 0)
-		- p.WheelieLeanBack * math.clamp(s.wheelie / 0.4, 0, 1)
-		+ p.Bounce * s.bounce
-
-	-- torso (rotates about its centre, the HRP). R6 arms can't bend, so search a
-	-- small range of extra lean and shoulder twist for the stance where both hands
-	-- land on the grips (and the feet still reach the pegs).
-	local armTip = tipOf(j.RS, j.armLen)
-	local legTip = tipOf(j.RH, j.legLen)
-	local armReach, legReach = armTip.Magnitude, legTip.Magnitude
-	local root = j.Root
-	local roll = CFrame.fromAxisAngle(Vector3.zAxis, -p.TurnLean * turn)
-	local baseTwist = -p.TurnTwist * s.steer
-	local function torsoFor(extra: number, tw: number): (CFrame, CFrame)
-		local local_ = CFrame.fromAxisAngle(Vector3.yAxis, baseTwist + tw) * roll
-			* CFrame.fromAxisAngle(Vector3.xAxis, -(lean + extra))
-		local T = solve(root, hrpCF, hrpCF.Rotation * local_)
-		return T, hrpCF * root.C0 * T * root.C1:Inverse()
-	end
-	local best, bestExtra, bestTw = math.huge, 0, 0
-	for extra = -0.15, p.MaxExtraLean + 1e-6, 0.05 do
-		for tw = -0.6, 0.6 + 1e-6, 0.05 do
-			local _, torso = torsoFor(extra, tw)
-			local dR = (targets.gripR - torso * j.RS.C0.Position).Magnitude - armReach
-			local dL = (targets.gripL - torso * j.LS.C0.Position).Magnitude - armReach
-			local fR = math.max((targets.pegR - torso * j.RH.C0.Position).Magnitude - legReach, 0)
-			local fL = math.max((targets.pegL - torso * j.LH.C0.Position).Magnitude - legReach, 0)
-			local cost = dR * dR + dL * dL + 0.5 * (fR * fR + fL * fL) + 0.02 * extra * extra + 0.01 * tw * tw
-			if cost < best then
-				best, bestExtra, bestTw = cost, extra, tw
-			end
-		end
-	end
-	-- glide towards the best stance instead of snapping (the search is coarse)
-	local mem = j.mem or { extra = bestExtra, tw = bestTw }
-	j.mem = mem
-	local a = if s.dt then 1 - math.exp(-12 * s.dt) else 1
-	mem.extra += (bestExtra - mem.extra) * a
-	mem.tw += (bestTw - mem.tw) * a
-	local rootT, torsoCF = torsoFor(mem.extra, mem.tw)
-	root.Transform = rootT
-
-	-- head: eyes level with the horizon (follows the bike's lean, not its pitch),
-	-- looking into the corner a little
-	local look = bikeCF.LookVector
-	local flatLook = Vector3.new(look.X, 0, look.Z)
-	flatLook = if flatLook.Magnitude > 1e-3 then flatLook.Unit else hrpCF.LookVector
-	local headUp = (Vector3.yAxis + bikeCF.UpVector).Unit
-	local headRight = flatLook:Cross(headUp).Unit
-	local headRot = CFrame.fromMatrix(Vector3.zero, headRight, headRight:Cross(flatLook))
-		* CFrame.fromAxisAngle(Vector3.yAxis, -p.HeadTurn * s.steer)
-		* CFrame.fromAxisAngle(Vector3.xAxis, -p.HeadDown + p.HeadUp * speedFrac)
-	j.Neck.Transform = solve(j.Neck, torsoCF, headRot)
-
-	-- arms to the grips, legs to the pegs
-	local right = torsoCF.RightVector
-	local out = { torso = torsoCF }
-	local limbs = {
-		{ j.RS, targets.gripR, j.armLen, "handR" },
-		{ j.LS, targets.gripL, j.armLen, "handL" },
-		{ j.RH, targets.pegR, j.legLen, "footR" },
-		{ j.LH, targets.pegL, j.legLen, "footL" },
-	}
-	for _, l in ipairs(limbs) do
-		local m, target, len, name = l[1], l[2], l[3], l[4]
-		local jointW = torsoCF * m.C0.Position
-		local tip = tipOf(m, len)
-		local R = aimLimb(jointW, target, tip, right)
-		m.Transform = solve(m, torsoCF, R)
-		out[name] = jointW + R:VectorToWorldSpace(tip)
-	end
-	return out
 end
 
--- local rider only: stop the default animations and pause the Animate script
-function Pose.takeOver(character: Model)
+function AnimPlayer.clear(j)
+	for _, part in ipairs(PARTS) do
+		j[part].Transform = CFrame.new()
+	end
+end
+
+-- local rider only: pause the default Animate script while riding
+function AnimPlayer.takeOver(character: Model)
 	local animate = character:FindFirstChild("Animate")
 	if animate and (animate:IsA("LocalScript") or animate:IsA("Script")) then
 		animate.Disabled = true
 	end
-	Pose.silence(character)
+	AnimPlayer.silence(character)
 end
 
-function Pose.release(character: Model)
+function AnimPlayer.release(character: Model)
 	local animate = character:FindFirstChild("Animate")
 	if animate and (animate:IsA("LocalScript") or animate:IsA("Script")) then
 		animate.Disabled = false
 	end
 end
 
-function Pose.clear(j)
-	for _, key in ipairs(KEYS) do
-		j[key].Transform = CFrame.new()
-	end
-end
-
--- stop the default sit / idle animation tracks on a rider (local view only)
-function Pose.silence(character: Model)
+-- stop default sit / idle animation tracks on a rider (local view only)
+function AnimPlayer.silence(character: Model)
 	local hum = character:FindFirstChildOfClass("Humanoid")
 	local animator = hum and hum:FindFirstChildOfClass("Animator")
 	if animator then
@@ -920,9 +893,61 @@ function Pose.silence(character: Model)
 	end
 end
 
-return Pose
+return AnimPlayer
 ]]></ProtectedString></Properties></Item>
-<Item class="Script" referent="RBX5"><Properties><string name="Name">BikeServer</string><ProtectedString name="Source"><![CDATA[-- RideKit.BikeServer (Script, RunContext = Server). Lives in the RideKit folder
+<Item class="ModuleScript" referent="RBX5"><Properties><string name="Name">AnimData</string><ProtectedString name="Source"><![CDATA[-- R6 riding clips keyframed in Blender (blender/anim/ride_anims.blend).
+-- Generated by roblox/build_ridekit.py from roblox/anim/ride_anims.json; do not edit.
+-- Each key: time (s) and every R6 joint's Motor6D.Transform rotation as a quaternion {x, y, z, w}.
+return {
+	bike = "surron2",
+	clips = {
+		Ride = { length = 2.0, loop = true, steer = 0.0, keys = {
+			{ t = 0.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12428, -0.00000, 0.00000, 0.99225 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 0.1, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12384, 0.00000, -0.00357, 0.99230 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 0.2, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12277, 0.00000, -0.01209, 0.99236 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 0.3, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12145, 0.00000, -0.02224, 0.99235 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 0.4, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12033, -0.00000, -0.03073, 0.99226 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 0.5, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11985, 0.00000, -0.03428, 0.99220 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 0.6, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12075, 0.00000, -0.03237, 0.99216 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 0.7, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12290, 0.00000, -0.02718, 0.99205 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 0.8, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12546, 0.00000, -0.01952, 0.99191 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 0.9, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12761, 0.00000, -0.01018, 0.99177 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12851, 0.00000, 0.00000, 0.99171 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.1, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12761, 0.00000, 0.01018, 0.99177 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.2, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12546, -0.00000, 0.01952, 0.99191 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.3, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12290, 0.00000, 0.02718, 0.99205 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.4, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12075, 0.00000, 0.03237, 0.99216 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.5, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11985, 0.00000, 0.03428, 0.99220 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.6, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11992, 0.00000, 0.03073, 0.99231 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.7, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12024, 0.00000, 0.02224, 0.99250 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.8, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12094, -0.00000, 0.01209, 0.99259 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 1.9, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12222, -0.00000, 0.00357, 0.99250 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+			{ t = 2.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12428, -0.00000, 0.00000, 0.99225 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+		} },
+		Tuck = { length = 1.0, loop = true, steer = 0.0, keys = {
+			{ t = 0.0, pose = { ["Torso"] = { 0.16918, -0.00000, -0.00000, 0.98559 }, ["Head"] = { -0.18004, -0.00000, 0.00000, 0.98366 }, ["Right Arm"] = { 0.07644, -0.00000, 0.59320, 0.80141 }, ["Left Arm"] = { 0.09924, 0.00000, -0.59411, 0.79824 }, ["Right Leg"] = { -0.12377, -0.00000, 0.11628, 0.98547 }, ["Left Leg"] = { -0.10617, -0.00000, -0.12441, 0.98653 } } },
+			{ t = 1.0, pose = { ["Torso"] = { 0.16918, -0.00000, -0.00000, 0.98559 }, ["Head"] = { -0.18004, -0.00000, 0.00000, 0.98366 }, ["Right Arm"] = { 0.07644, -0.00000, 0.59320, 0.80141 }, ["Left Arm"] = { 0.09924, 0.00000, -0.59411, 0.79824 }, ["Right Leg"] = { -0.12377, -0.00000, 0.11628, 0.98547 }, ["Left Leg"] = { -0.10617, -0.00000, -0.12441, 0.98653 } } },
+		} },
+		Brake = { length = 1.0, loop = true, steer = 0.0, keys = {
+			{ t = 0.0, pose = { ["Torso"] = { 0.10481, 0.00000, 0.00000, 0.99449 }, ["Head"] = { -0.07199, 0.00000, 0.00000, 0.99740 }, ["Right Arm"] = { 0.07066, 0.00000, 0.54471, 0.83564 }, ["Left Arm"] = { 0.09174, 0.00000, -0.54555, 0.83304 }, ["Right Leg"] = { -0.12411, 0.00000, 0.01727, 0.99212 }, ["Left Leg"] = { -0.10651, 0.00000, -0.02485, 0.99400 } } },
+			{ t = 1.0, pose = { ["Torso"] = { 0.10481, 0.00000, 0.00000, 0.99449 }, ["Head"] = { -0.07199, 0.00000, 0.00000, 0.99740 }, ["Right Arm"] = { 0.07066, 0.00000, 0.54471, 0.83564 }, ["Left Arm"] = { 0.09174, 0.00000, -0.54555, 0.83304 }, ["Right Leg"] = { -0.12411, 0.00000, 0.01727, 0.99212 }, ["Left Leg"] = { -0.10651, 0.00000, -0.02485, 0.99400 } } },
+		} },
+		LeanRight = { length = 1.0, loop = true, steer = 0.24, keys = {
+			{ t = 0.0, pose = { ["Torso"] = { 0.17564, -0.13342, -0.16469, 0.96137 }, ["Head"] = { -0.17435, 0.00000, -0.06362, 0.98263 }, ["Right Arm"] = { 0.25756, 0.00000, 0.62658, 0.73557 }, ["Left Arm"] = { -0.06365, 0.00000, -0.49522, 0.86643 }, ["Right Leg"] = { -0.31351, 0.00000, 0.24114, 0.91846 }, ["Left Leg"] = { 0.10797, -0.00000, -0.09514, 0.98959 } } },
+			{ t = 1.0, pose = { ["Torso"] = { 0.17564, -0.13342, -0.16469, 0.96137 }, ["Head"] = { -0.17435, 0.00000, -0.06362, 0.98263 }, ["Right Arm"] = { 0.25756, 0.00000, 0.62658, 0.73557 }, ["Left Arm"] = { -0.06365, 0.00000, -0.49522, 0.86643 }, ["Right Leg"] = { -0.31351, 0.00000, 0.24114, 0.91846 }, ["Left Leg"] = { 0.10797, -0.00000, -0.09514, 0.98959 } } },
+		} },
+		LeanLeft = { length = 1.0, loop = true, steer = -0.24, keys = {
+			{ t = 0.0, pose = { ["Torso"] = { 0.17430, 0.13517, 0.17430, 0.95967 }, ["Head"] = { -0.17270, -0.00000, 0.05327, 0.98353 }, ["Right Arm"] = { -0.08833, -0.00000, 0.46757, 0.87953 }, ["Left Arm"] = { 0.28308, 0.00000, -0.61252, 0.73803 }, ["Right Leg"] = { 0.09810, -0.00000, 0.07991, 0.99196 }, ["Left Leg"] = { -0.29659, -0.00000, -0.25045, 0.92158 } } },
+			{ t = 1.0, pose = { ["Torso"] = { 0.17430, 0.13517, 0.17430, 0.95967 }, ["Head"] = { -0.17270, -0.00000, 0.05327, 0.98353 }, ["Right Arm"] = { -0.08833, -0.00000, 0.46757, 0.87953 }, ["Left Arm"] = { 0.28308, 0.00000, -0.61252, 0.73803 }, ["Right Leg"] = { 0.09810, -0.00000, 0.07991, 0.99196 }, ["Left Leg"] = { -0.29659, -0.00000, -0.25045, 0.92158 } } },
+		} },
+		Wheelie = { length = 1.0, loop = true, steer = 0.0, keys = {
+			{ t = 0.0, pose = { ["Torso"] = { 0.06495, -0.00000, -0.00000, 0.99789 }, ["Head"] = { 0.15107, -0.00000, 0.00000, 0.98852 }, ["Right Arm"] = { 0.06763, 0.00000, 0.51481, 0.85463 }, ["Left Arm"] = { 0.08781, -0.00000, -0.51561, 0.85231 }, ["Right Leg"] = { -0.12407, -0.00000, -0.04410, 0.99129 }, ["Left Leg"] = { -0.10649, -0.00000, 0.03698, 0.99363 } } },
+			{ t = 1.0, pose = { ["Torso"] = { 0.06495, -0.00000, -0.00000, 0.99789 }, ["Head"] = { 0.15107, -0.00000, 0.00000, 0.98852 }, ["Right Arm"] = { 0.06763, 0.00000, 0.51481, 0.85463 }, ["Left Arm"] = { 0.08781, -0.00000, -0.51561, 0.85231 }, ["Right Leg"] = { -0.12407, -0.00000, -0.04410, 0.99129 }, ["Left Leg"] = { -0.10649, -0.00000, 0.03698, 0.99363 } } },
+		} },
+	},
+}
+]]></ProtectedString></Properties></Item>
+<Item class="Script" referent="RBX6"><Properties><string name="Name">BikeServer</string><ProtectedString name="Source"><![CDATA[-- RideKit.BikeServer (Script, RunContext = Server). Lives in the RideKit folder
 -- inside the bike model. Rigs the bike, handles mounting and network ownership,
 -- and lets the bike roll to a stop after the rider gets off.
 
@@ -1002,7 +1027,7 @@ RunService.Stepped:Connect(function(_, dt)
 	end
 end)
 ]]></ProtectedString><token name="RunContext">1</token><bool name="Disabled">false</bool></Properties></Item>
-<Item class="Script" referent="RBX6"><Properties><string name="Name">BikeClient</string><ProtectedString name="Source"><![CDATA[-- RideKit.BikeClient (Script, RunContext = Client). Runs on every player's
+<Item class="Script" referent="RBX7"><Properties><string name="Name">BikeClient</string><ProtectedString name="Source"><![CDATA[-- RideKit.BikeClient (Script, RunContext = Client). Runs on every player's
 -- machine for this bike:
 --   * drives the bike when the local player is the rider
 --   * animates wheels, fork, suspension for everyone
@@ -1011,7 +1036,8 @@ end)
 local kit = script.Parent
 local Config = require(kit:WaitForChild("Config"))
 local Physics = require(kit:WaitForChild("Physics"))
-local Pose = require(kit:WaitForChild("Pose"))
+local AnimPlayer = require(kit:WaitForChild("AnimPlayer"))
+local AnimData = require(kit:WaitForChild("AnimData"))
 
 -- @body (everything below is shared with the single-file RideKit_Client.lua)
 local Players = game:GetService("Players")
@@ -1029,7 +1055,9 @@ local function runBike(bike: Model)
 	local swingPivot = bike:WaitForChild("RideKit_SwingPivot") :: BasePart
 	local steerMotor = chassis:WaitForChild("RideKit_SteerMotor") :: Motor6D
 	local swingMotor = chassis:WaitForChild("RideKit_SwingMotor") :: Motor6D
-	local frontHubMotor = steerPivot:WaitForChild("RideKit_FrontHubMotor") :: Motor6D
+	local frontSlider = bike:WaitForChild("RideKit_FrontSlider") :: BasePart
+	local frontSlideMotor = steerPivot:WaitForChild("RideKit_FrontSlideMotor") :: Motor6D
+	local frontHubMotor = frontSlider:WaitForChild("RideKit_FrontHubMotor") :: Motor6D
 	local rearHubMotor = swingPivot:WaitForChild("RideKit_RearHubMotor") :: Motor6D
 
 	local physics = Physics.new(bike, Config)
@@ -1054,6 +1082,9 @@ local function runBike(bike: Model)
 	local spinF, spinR, steerVis = 0, 0, 0
 	local riderJoints, riderChar = nil, nil
 	local tookOver = false
+	local animClips = AnimPlayer.prepare(AnimData)
+	local animWeights = { tuck = 0, brake = 0, leanR = 0, leanL = 0, wheelie = 0 }
+	local animTime = 0
 	local poseBounce = 0
 
 	-- motor / wind sounds and brake lights already in the model (played locally)
@@ -1121,7 +1152,7 @@ local function runBike(bike: Model)
 		spinF = (spinF + vF / radF * dt) % (2 * math.pi)
 		spinR = (spinR + vF / radR * dt) % (2 * math.pi)
 		local speedFrac = math.clamp(math.abs(vF) / Config.MaxSpeed, 0, 1)
-		local steerTarget = steer * math.rad(Config.MaxSteerAngle) * (1 - 0.65 * speedFrac)
+		local steerTarget = steer * math.rad(Config.MaxSteerAngle) * (1 - 0.4 * speedFrac)
 		steerVis += (steerTarget - steerVis) * (1 - math.exp(-12 * dt))
 		local compF, hitF = physics:probe(1)
 		local compR, hitR = physics:probe(2)
@@ -1130,7 +1161,8 @@ local function runBike(bike: Model)
 		offF += (math.clamp(compF - travel * 0.5, -travel * 0.5, travel * 0.8) - offF) * smooth
 		offR += (math.clamp(compR - travel * 0.5, -travel * 0.5, travel * 0.8) - offR) * smooth
 		steerMotor.Transform = CFrame.Angles(0, -steerVis, 0)
-		frontHubMotor.Transform = CFrame.new(0, offF, 0) * CFrame.Angles(-spinF, 0, 0)
+		frontSlideMotor.Transform = CFrame.new(0, offF, 0) -- fork lowers + wheel slide up the fork
+		frontHubMotor.Transform = CFrame.Angles(-spinF, 0, 0)
 		swingMotor.Transform = CFrame.Angles(-math.asin(math.clamp(offR / armLen, -0.5, 0.5)), 0, 0)
 		rearHubMotor.Transform = CFrame.Angles(-spinR, 0, 0)
 
@@ -1154,25 +1186,25 @@ local function runBike(bike: Model)
 			end
 		end
 
-		-- rider pose
+		-- rider animation (made in Blender, see blender/anim): blend the clips by riding state
 		if char ~= riderChar then
 			if riderJoints then
-				Pose.clear(riderJoints)
-				riderJoints.mem = nil
+				AnimPlayer.clear(riderJoints)
 			end
 			if tookOver and riderChar then
-				Pose.release(riderChar)
+				AnimPlayer.release(riderChar)
 			end
 			riderChar = char
-			riderJoints = if char then Pose.joints(char) else nil
+			riderJoints = if char then AnimPlayer.joints(char) else nil
 			tookOver = riderJoints ~= nil and char == player.Character -- R6 only; R15 keeps its sit animation
 			if tookOver then
-				Pose.takeOver(char)
+				AnimPlayer.takeOver(char)
 			end
+			animTime = 0
 		end
-		if riderJoints and char and riderJoints.hrp then
-			Pose.silence(char)
-			poseBounce += ((offF + offR) * 0.5 - poseBounce) * (1 - math.exp(-8 * dt))
+		if riderJoints and char then
+			AnimPlayer.silence(char)
+			animTime += dt
 			-- wheelie = nose higher than the ground slope under the wheels
 			local pitch = math.asin(math.clamp(chassis.CFrame.LookVector.Y, -1, 1))
 			local slope = 0
@@ -1180,23 +1212,20 @@ local function runBike(bike: Model)
 				local d = hitF.Position - hitR.Position
 				slope = math.asin(math.clamp(d.Y / math.max(d.Magnitude, 0.01), -1, 1))
 			end
-			local wheelieAngle = if hitR and compF <= 0 then math.max(pitch - slope, 0.2) else math.max(pitch - slope, 0)
-			local steerCF = steerPivot.CFrame
-			local chassisCF = chassis.CFrame
-			Pose.solve(riderJoints, riderJoints.hrp.CFrame, chassisCF, {
-				gripL = steerCF * gripL,
-				gripR = steerCF * gripR,
-				pegL = chassisCF * pegL,
-				pegR = chassisCF * pegR,
-			}, Config.Pose, {
-				throttle = throttle,
-				steer = steer,
-				speed = vF,
-				maxSpeed = Config.MaxSpeed,
-				wheelie = if wheelieAngle > 0.12 then wheelieAngle else 0,
-				bounce = -poseBounce,
-				dt = dt,
-			})
+			local wheelieAngle = math.max(pitch - slope, 0)
+			local moving = math.clamp(math.abs(vF) / 12, 0, 1)
+			local target = {
+				tuck = math.max(throttle, 0) * math.clamp(math.abs(vF) / 25, 0.3, 1),
+				brake = if throttle < -0.1 and vF > 1 then -throttle else 0,
+				leanR = math.max(steer, 0) * math.max(moving, 0.5),
+				leanL = math.max(-steer, 0) * math.max(moving, 0.5),
+				wheelie = math.clamp((wheelieAngle - 0.06) / 0.3, 0, 1),
+			}
+			local a = 1 - math.exp(-Config.AnimBlendSpeed * dt)
+			for k, v in pairs(target) do
+				animWeights[k] += (v - animWeights[k]) * a
+			end
+			AnimPlayer.apply(riderJoints, AnimPlayer.pose(animClips, animTime, animWeights))
 		end
 	end)
 end

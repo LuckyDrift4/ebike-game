@@ -30,6 +30,8 @@ function Physics:resetHeading()
 	self.pitch = 0
 	self.roll = 0
 	self.wheelie = 0
+	self.accel = 0
+	self.lastVF = nil
 end
 
 function Physics:setIgnore(list: { Instance })
@@ -144,11 +146,18 @@ function Physics:step(dt: number, throttle: number, steer: number, wheelieHeld: 
 		targetPitch = self.pitch * (1 - dt * 0.4)
 	end
 	self.pitch += (targetPitch - self.pitch) * (1 - math.exp(-10 * dt))
+	-- weight transfer: nose dives under braking, squats under acceleration
+	if self.lastVF then
+		local a = (vF - self.lastVF) / dt
+		self.accel += (a - self.accel) * (1 - math.exp(-8 * dt))
+	end
+	self.lastVF = vF
+	local transfer = if grounded then math.clamp(self.accel * cfg.WeightTransfer, -0.07, 0.05) else 0
 	local wantWheelie = wheelieHeld and hits[2] ~= nil and vF > cfg.WheelieMinSpeed and throttle > 0.3
 	local wTarget = if wantWheelie then math.rad(cfg.WheelieAngle) else 0
 	self.wheelie += (wTarget - self.wheelie) * (1 - math.exp(-(if wantWheelie then 2.5 else 4) * dt))
 
-	self.align.CFrame = CFrame.fromEulerAnglesYXZ(self.pitch + self.wheelie, self.yaw, self.roll)
+	self.align.CFrame = CFrame.fromEulerAnglesYXZ(self.pitch + self.wheelie + transfer, self.yaw, self.roll)
 	return vF
 end
 

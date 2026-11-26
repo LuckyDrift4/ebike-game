@@ -7,7 +7,8 @@
 local kit = script.Parent
 local Config = require(kit:WaitForChild("Config"))
 local Physics = require(kit:WaitForChild("Physics"))
-local Pose = require(kit:WaitForChild("Pose"))
+local AnimPlayer = require(kit:WaitForChild("AnimPlayer"))
+local AnimData = require(kit:WaitForChild("AnimData"))
 
 -- @body (everything below is shared with the single-file RideKit_Client.lua)
 local Players = game:GetService("Players")
@@ -25,7 +26,9 @@ local function runBike(bike: Model)
 	local swingPivot = bike:WaitForChild("RideKit_SwingPivot") :: BasePart
 	local steerMotor = chassis:WaitForChild("RideKit_SteerMotor") :: Motor6D
 	local swingMotor = chassis:WaitForChild("RideKit_SwingMotor") :: Motor6D
-	local frontHubMotor = steerPivot:WaitForChild("RideKit_FrontHubMotor") :: Motor6D
+	local frontSlider = bike:WaitForChild("RideKit_FrontSlider") :: BasePart
+	local frontSlideMotor = steerPivot:WaitForChild("RideKit_FrontSlideMotor") :: Motor6D
+	local frontHubMotor = frontSlider:WaitForChild("RideKit_FrontHubMotor") :: Motor6D
 	local rearHubMotor = swingPivot:WaitForChild("RideKit_RearHubMotor") :: Motor6D
 
 	local physics = Physics.new(bike, Config)
@@ -50,6 +53,9 @@ local function runBike(bike: Model)
 	local spinF, spinR, steerVis = 0, 0, 0
 	local riderJoints, riderChar = nil, nil
 	local tookOver = false
+	local animClips = AnimPlayer.prepare(AnimData)
+	local animWeights = { tuck = 0, brake = 0, leanR = 0, leanL = 0, wheelie = 0 }
+	local animTime = 0
 	local poseBounce = 0
 
 	-- motor / wind sounds and brake lights already in the model (played locally)
@@ -117,7 +123,7 @@ local function runBike(bike: Model)
 		spinF = (spinF + vF / radF * dt) % (2 * math.pi)
 		spinR = (spinR + vF / radR * dt) % (2 * math.pi)
 		local speedFrac = math.clamp(math.abs(vF) / Config.MaxSpeed, 0, 1)
-		local steerTarget = steer * math.rad(Config.MaxSteerAngle) * (1 - 0.65 * speedFrac)
+		local steerTarget = steer * math.rad(Config.MaxSteerAngle) * (1 - 0.4 * speedFrac)
 		steerVis += (steerTarget - steerVis) * (1 - math.exp(-12 * dt))
 		local compF, hitF = physics:probe(1)
 		local compR, hitR = physics:probe(2)
@@ -126,7 +132,8 @@ local function runBike(bike: Model)
 		offF += (math.clamp(compF - travel * 0.5, -travel * 0.5, travel * 0.8) - offF) * smooth
 		offR += (math.clamp(compR - travel * 0.5, -travel * 0.5, travel * 0.8) - offR) * smooth
 		steerMotor.Transform = CFrame.Angles(0, -steerVis, 0)
-		frontHubMotor.Transform = CFrame.new(0, offF, 0) * CFrame.Angles(-spinF, 0, 0)
+		frontSlideMotor.Transform = CFrame.new(0, offF, 0) -- fork lowers + wheel slide up the fork
+		frontHubMotor.Transform = CFrame.Angles(-spinF, 0, 0)
 		swingMotor.Transform = CFrame.Angles(-math.asin(math.clamp(offR / armLen, -0.5, 0.5)), 0, 0)
 		rearHubMotor.Transform = CFrame.Angles(-spinR, 0, 0)
 
@@ -150,25 +157,25 @@ local function runBike(bike: Model)
 			end
 		end
 
-		-- rider pose
+		-- rider animation (made in Blender, see blender/anim): blend the clips by riding state
 		if char ~= riderChar then
 			if riderJoints then
-				Pose.clear(riderJoints)
-				riderJoints.mem = nil
+				AnimPlayer.clear(riderJoints)
 			end
 			if tookOver and riderChar then
-				Pose.release(riderChar)
+				AnimPlayer.release(riderChar)
 			end
 			riderChar = char
-			riderJoints = if char then Pose.joints(char) else nil
+			riderJoints = if char then AnimPlayer.joints(char) else nil
 			tookOver = riderJoints ~= nil and char == player.Character -- R6 only; R15 keeps its sit animation
 			if tookOver then
-				Pose.takeOver(char)
+				AnimPlayer.takeOver(char)
 			end
+			animTime = 0
 		end
-		if riderJoints and char and riderJoints.hrp then
-			Pose.silence(char)
-			poseBounce += ((offF + offR) * 0.5 - poseBounce) * (1 - math.exp(-8 * dt))
+		if riderJoints and char then
+			AnimPlayer.silence(char)
+			animTime += dt
 			-- wheelie = nose higher than the ground slope under the wheels
 			local pitch = math.asin(math.clamp(chassis.CFrame.LookVector.Y, -1, 1))
 			local slope = 0
@@ -176,23 +183,20 @@ local function runBike(bike: Model)
 				local d = hitF.Position - hitR.Position
 				slope = math.asin(math.clamp(d.Y / math.max(d.Magnitude, 0.01), -1, 1))
 			end
-			local wheelieAngle = if hitR and compF <= 0 then math.max(pitch - slope, 0.2) else math.max(pitch - slope, 0)
-			local steerCF = steerPivot.CFrame
-			local chassisCF = chassis.CFrame
-			Pose.solve(riderJoints, riderJoints.hrp.CFrame, chassisCF, {
-				gripL = steerCF * gripL,
-				gripR = steerCF * gripR,
-				pegL = chassisCF * pegL,
-				pegR = chassisCF * pegR,
-			}, Config.Pose, {
-				throttle = throttle,
-				steer = steer,
-				speed = vF,
-				maxSpeed = Config.MaxSpeed,
-				wheelie = if wheelieAngle > 0.12 then wheelieAngle else 0,
-				bounce = -poseBounce,
-				dt = dt,
-			})
+			local wheelieAngle = math.max(pitch - slope, 0)
+			local moving = math.clamp(math.abs(vF) / 12, 0, 1)
+			local target = {
+				tuck = math.max(throttle, 0) * math.clamp(math.abs(vF) / 25, 0.3, 1),
+				brake = if throttle < -0.1 and vF > 1 then -throttle else 0,
+				leanR = math.max(steer, 0) * math.max(moving, 0.5),
+				leanL = math.max(-steer, 0) * math.max(moving, 0.5),
+				wheelie = math.clamp((wheelieAngle - 0.06) / 0.3, 0, 1),
+			}
+			local a = 1 - math.exp(-Config.AnimBlendSpeed * dt)
+			for k, v in pairs(target) do
+				animWeights[k] += (v - animWeights[k]) * a
+			end
+			AnimPlayer.apply(riderJoints, AnimPlayer.pose(animClips, animTime, animWeights))
 		end
 	end)
 end

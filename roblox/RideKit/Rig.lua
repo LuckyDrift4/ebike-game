@@ -4,6 +4,7 @@
 -- that group's root:
 --   body        -> RideKit_Chassis   (invisible physics box, carries everything)
 --   steer       -> RideKit_SteerPivot (forks, bars, levers; turns about the steering axis)
+--   frontSlide  -> RideKit_FrontSlider (fork lowers / axle bits: steer + slide with the fork, no spin)
 --   frontSpin   -> RideKit_FrontHub   (front wheel mesh; spins, steers, compresses)
 --   swing       -> RideKit_SwingPivot (swingarm, chain, mudguard; pivots with the suspension)
 --   rearSpin    -> RideKit_RearHub    (rear wheel mesh; spins)
@@ -55,7 +56,7 @@ local function lineDistance(p: Vector3, a: Vector3, d: Vector3): (number, number
 end
 
 --[[ Which group a part belongs to.
-  info: { name, pos, isFront, isRear, inFront, inRear, ancestors = { {name=, class=}, ... } }
+  info: { name, pos, isFront, isRear, inFront, inRear, parentIsFront, ancestors = { {name=, class=}, ... } }
   ctx : { frontPos, rearPos, radF, radR, steerPos, steerAxis, swingPos, fwd }
 ]]
 function Rig.classify(info, ctx): string
@@ -70,7 +71,21 @@ function Rig.classify(info, ctx): string
 	elseif (pos - ctx.rearPos).Magnitude < ctx.radR * 0.3 then
 		return "rearSpin"
 	end
-	if info.inFront or hasWord(info.name, STEER_WORDS) then
+	if info.inFront then
+		-- parts hung straight off the front wheel, or in its WheelFixed / SuspensionFixed
+		-- model, are fork lowers: they slide with the wheel when the fork compresses
+		if info.parentIsFront then
+			return "frontSlide"
+		end
+		for _, a in ipairs(info.ancestors) do
+			local n = string.lower(a.name)
+			if n == "wheelfixed" or n == "suspensionfixed" then
+				return "frontSlide"
+			end
+		end
+		return "steer"
+	end
+	if hasWord(info.name, STEER_WORDS) then
 		return "steer"
 	end
 	for _, a in ipairs(info.ancestors) do
@@ -172,35 +187,44 @@ function Rig.riderSetup(d, cfg)
 		seatTop = seatPos:Dot(up) - 0.1
 		seatHalfLen = 0.8
 	end
-	-- height: R6 hips 1 stud below the HumanoidRootPart, legs 2 studs
-	local pegY = (d.pegL:Dot(up) + d.pegR:Dot(up)) / 2
-	local hipY
-	if type(cfg.SeatHeight) == "number" then
-		hipY = seatTop + cfg.SeatHeight - 1
-	else
-		hipY = math.clamp(pegY + 2 * 0.96, seatTop - 0.25, seatTop + 0.15)
-	end
-	local riderUp = hipY + 1 - seatPos:Dot(up)
-	-- fore-aft: slide forward along the seat until the hands can reach the grips
-	local forward = cfg.SeatForward
-	if type(forward) ~= "number" then
-		local lean = cfg.Pose.TorsoLean + 0.15
-		local reach = math.sqrt(0.5 * 0.5 + 1.5 * 1.5) * 0.97 -- R6 shoulder joint -> hand
-		local maxF = math.max(seatHalfLen - 0.15, 0)
-		forward = maxF
-		for f = 0, maxF + 1e-6, 0.05 do
-			local hrp = seatPos + up * riderUp + fwd * f
-			local shoulder = hrp + up * (0.5 * math.cos(lean)) + fwd * (0.5 * math.sin(lean))
-			local farGrip = math.max(
-				(gripL - (shoulder - right * 1)).Magnitude,
-				(gripR - (shoulder + right * 1)).Magnitude
-			)
-			if farGrip <= reach then
-				forward = f
-				break
+	-- R6 rider: HumanoidRootPart = torso centre, shoulders 0.5 above it (arms reach 1.5 to the
+	-- hands, which sit 0.5 outboard), hips 1 below it (legs reach 2 to the feet, 0.5 inboard).
+	-- Search the seat position (forward along the seat, hip height) where a natural forward
+	-- lean puts the hands on the grips and the feet near the pegs.
+	local lean = cfg.Pose.TorsoLean
+	local sL, cL = math.sin(lean), math.cos(lean)
+	local aimR, aimL = gripR - right * 0.5, gripL + right * 0.5
+	local footR, footL = d.pegR + right * 0.5, d.pegL - right * 0.5
+	local fixedF = type(cfg.SeatForward) == "number"
+	local fixedH = type(cfg.SeatHeight) == "number"
+	local best, bestF, bestHip = math.huge, 0, seatTop
+	local fMax = if fixedF then cfg.SeatForward else seatHalfLen + 0.3
+	local f0 = if fixedF then cfg.SeatForward else 0
+	local h0 = if fixedH then seatTop + cfg.SeatHeight - 1 else seatTop - 0.3
+	local h1 = if fixedH then h0 else seatTop + 0.15
+	for f = f0, fMax + 1e-6, 0.05 do
+		for hipY = h0, h1 + 1e-6, 0.05 do
+			local base = seatPos + fwd * f
+			local hrp = base + up * (hipY + 1 - seatPos:Dot(up))
+			local sh = hrp + up * (0.5 * cL) + fwd * (0.5 * sL)
+			local hip = hrp - up * cL - fwd * sL
+			local eR = (aimR - (sh + right)).Magnitude - 1.5
+			local eL = (aimL - (sh - right)).Magnitude - 1.5
+			local lR = (footR - (hip + right)).Magnitude - 2
+			local lL = (footL - (hip - right)).Magnitude - 2
+			local function leg(e)
+				return if e > 0 then e * e else 0.3 * e * e -- dangling short is worse than overshoot
+			end
+			local cost = 4 * (eR * eR + eL * eL) + leg(lR) + leg(lL)
+				+ 2 * math.max(0, f - seatHalfLen) ^ 2 -- prefer sitting on the seat
+				+ 2 * math.max(0, seatTop - 0.1 - hipY) ^ 2 -- and not sunk into it
+			if cost < best then
+				best, bestF, bestHip = cost, f, hipY
 			end
 		end
 	end
+	local forward = bestF
+	local riderUp = bestHip + 1 - seatPos:Dot(up)
 	return {
 		gripL = gripL,
 		gripR = gripR,
@@ -350,11 +374,13 @@ function Rig.build(bike: Model, cfg)
 	align.Parent = chassis
 
 	local steerPivot = helper("RideKit_SteerPivot", CFrame.fromMatrix(steerPos, right, steerAxis), bike)
+	local frontSlider = helper("RideKit_FrontSlider", CFrame.fromMatrix(front.Position, right, steerAxis), bike)
 	local frontHub = helper("RideKit_FrontHub", CFrame.fromMatrix(front.Position, right, up), bike)
 	local swingPivot = helper("RideKit_SwingPivot", CFrame.fromMatrix(swingPos, right, up), bike)
 	local rearHub = helper("RideKit_RearHub", CFrame.fromMatrix(rear.Position, right, up), bike)
 	motor("RideKit_SteerMotor", chassis, steerPivot)
-	motor("RideKit_FrontHubMotor", steerPivot, frontHub)
+	motor("RideKit_FrontSlideMotor", steerPivot, frontSlider) -- slides along the steering axis
+	motor("RideKit_FrontHubMotor", frontSlider, frontHub) -- spins
 	motor("RideKit_SwingMotor", chassis, swingPivot)
 	motor("RideKit_RearHubMotor", swingPivot, rearHub)
 
@@ -362,6 +388,7 @@ function Rig.build(bike: Model, cfg)
 	local ours = {
 		[chassis] = true,
 		[steerPivot] = true,
+		[frontSlider] = true,
 		[frontHub] = true,
 		[swingPivot] = true,
 		[rearHub] = true,
@@ -378,8 +405,15 @@ function Rig.build(bike: Model, cfg)
 		right = right,
 		up = up,
 	}
-	local roots = { body = chassis, steer = steerPivot, frontSpin = frontHub, swing = swingPivot, rearSpin = rearHub }
-	local counts = { body = 0, steer = 0, frontSpin = 0, swing = 0, rearSpin = 0 }
+	local roots = {
+		body = chassis,
+		steer = steerPivot,
+		frontSlide = frontSlider,
+		frontSpin = frontHub,
+		swing = swingPivot,
+		rearSpin = rearHub,
+	}
+	local counts = { body = 0, steer = 0, frontSlide = 0, frontSpin = 0, swing = 0, rearSpin = 0 }
 	local bar: BasePart? = nil -- widest steering part = handlebar
 	local barWidth = 0
 	local bodyParts = {}
@@ -394,6 +428,7 @@ function Rig.build(bike: Model, cfg)
 			isRear = part == rear,
 			inFront = part:IsDescendantOf(front),
 			inRear = part:IsDescendantOf(rear),
+			parentIsFront = part.Parent == front,
 			ancestors = ancestorsOf(part, bike),
 		}, ctx)
 		if group == "steer" then
@@ -480,7 +515,8 @@ function Rig.build(bike: Model, cfg)
 	bike:SetAttribute("RideKitReady", true)
 
 	print(
-		`RideKit: {bike.Name} rigged. body {counts.body}, steering {counts.steer}, front wheel {counts.frontSpin}, `
+		`RideKit: {bike.Name} rigged. body {counts.body}, steering {counts.steer}, fork lowers {counts.frontSlide}, `
+			.. `front wheel {counts.frontSpin}, `
 			.. `swingarm {counts.swing}, rear wheel {counts.rearSpin} parts. `
 			.. `Grips from "{if bar then bar.Name else "(guessed)"}", seat "{if seatRef then seatRef.name else "(guessed)"}", `
 			.. `rider {string.format("%.2f", rider.forward)} forward`

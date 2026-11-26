@@ -57,6 +57,15 @@ function C.new(a, b, c_, ...)
 	if a == nil then return mk(V.zero, V.xAxis, V.yAxis, V.zAxis) end
 	if type(a) == "table" then return mk(a, V.xAxis, V.yAxis, V.zAxis) end
 	local r = { ... }
+	if #r == 4 then -- quaternion x, y, z, w
+		local x, y, z, w = r[1], r[2], r[3], r[4]
+		local m = math.sqrt(x * x + y * y + z * z + w * w)
+		x, y, z, w = x / m, y / m, z / m, w / m
+		return mk(V.new(a, b, c_),
+			V.new(1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w)),
+			V.new(2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w)),
+			V.new(2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)))
+	end
 	if #r == 9 then -- rows R00 R01 R02 / R10 ... -> columns
 		return mk(V.new(a, b, c_), V.new(r[1], r[4], r[7]), V.new(r[2], r[5], r[8]), V.new(r[3], r[6], r[9]))
 	end
@@ -110,6 +119,44 @@ function C.PointToWorldSpace(a, v) return a * v end
 function C.PointToObjectSpace(a, v) return a:Inverse() * v end
 function C.VectorToWorldSpace(a, v) return rotv(a, v) end
 function C.VectorToObjectSpace(a, v) return rotv(a:Inverse(), v) end
+local function toQuat(c)
+	local m00, m01, m02 = c.x.X, c.y.X, c.z.X
+	local m10, m11, m12 = c.x.Y, c.y.Y, c.z.Y
+	local m20, m21, m22 = c.x.Z, c.y.Z, c.z.Z
+	local tr = m00 + m11 + m22
+	local x, y, z, w
+	if tr > 0 then
+		local s = math.sqrt(tr + 1) * 2
+		w, x, y, z = 0.25 * s, (m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s
+	elseif m00 > m11 and m00 > m22 then
+		local s = math.sqrt(1 + m00 - m11 - m22) * 2
+		w, x, y, z = (m21 - m12) / s, 0.25 * s, (m01 + m10) / s, (m02 + m20) / s
+	elseif m11 > m22 then
+		local s = math.sqrt(1 + m11 - m00 - m22) * 2
+		w, x, y, z = (m02 - m20) / s, (m01 + m10) / s, 0.25 * s, (m12 + m21) / s
+	else
+		local s = math.sqrt(1 + m22 - m00 - m11) * 2
+		w, x, y, z = (m10 - m01) / s, (m02 + m20) / s, (m12 + m21) / s, 0.25 * s
+	end
+	return x, y, z, w
+end
+function C.Lerp(a, b, t)
+	local ax, ay, az, aw = toQuat(a)
+	local bx, by, bz, bw = toQuat(b)
+	local d = ax * bx + ay * by + az * bz + aw * bw
+	if d < 0 then
+		bx, by, bz, bw, d = -bx, -by, -bz, -bw, -d
+	end
+	local k0, k1
+	if d > 0.9995 then
+		k0, k1 = 1 - t, t
+	else
+		local th = math.acos(d)
+		k0, k1 = math.sin((1 - t) * th) / math.sin(th), math.sin(t * th) / math.sin(th)
+	end
+	local p = a.p + (b.p - a.p) * t
+	return C.new(p.X, p.Y, p.Z, ax * k0 + bx * k1, ay * k0 + by * k1, az * k0 + bz * k1, aw * k0 + bw * k1)
+end
 function C.GetComponents(c)
 	return c.p.X, c.p.Y, c.p.Z, c.x.X, c.y.X, c.z.X, c.x.Y, c.y.Y, c.z.Y, c.x.Z, c.y.Z, c.z.Z
 end

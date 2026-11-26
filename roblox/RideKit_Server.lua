@@ -19,7 +19,7 @@ local Config = (function()
 		CoastDecel = 5,
 		SteerRate = 2.4, -- heading change (rad/s) at full lock
 		FullTurnSpeed = 10, -- below this speed steering is weaker (a bike can't turn on the spot)
-		MaxSteerAngle = 30, -- visual fork angle at walking pace (less at speed)
+		MaxSteerAngle = 17, -- visual bar angle at walking pace (less at speed; the lean clips are posed at 14)
 		MaxLean = 35, -- lean into corners at speed
 		LeanFullSpeed = 30,
 		LeanResponse = 6,
@@ -28,7 +28,8 @@ local Config = (function()
 		-- suspension (raycast)
 		SuspensionTravel = 0.5,
 		SpringRate = 1.0, -- 1.0 = sits at half travel; higher = stiffer
-		Damping = 1.0, -- 1.0 = critically damped (no bounce); lower = springier
+		Damping = 0.75, -- 1.0 = no rebound at all; lower = springier (stays stable)
+		WeightTransfer = 0.0012, -- nose dive under braking / squat under throttle (rad per stud/s²)
 		AlignResponsiveness = 40,
 		ChassisDensity = 0.7,
 
@@ -44,22 +45,10 @@ local Config = (function()
 		GripInset = 0.25, -- hands sit this far in from the ends of the handlebar
 		PegInset = 0.15, -- feet sit this far in from the ends of the foot-peg bar
 
-		-- rider pose (radians). Hands are aimed at the grips and feet at the pegs
-		-- automatically; these only shape the body around them.
-		Pose = {
-			TorsoLean = 0.30, -- leaning forward over the bars
-			TorsoLeanThrottle = 0.10, -- extra tuck when accelerating
-			TorsoLeanSpeed = 0.08, -- extra tuck at top speed
-			BrakeLeanBack = 0.12,
-			WheelieLeanBack = 0.30,
-			MaxExtraLean = 0.45, -- lean up to this much further when the grips are out of reach
-			TurnLean = 0.18, -- rider leans further into the corner than the bike
-			TurnTwist = 0.15, -- shoulders follow the bars (fine-tuned automatically so both hands reach)
-			HeadTurn = 0.30, -- look into the corner
-			HeadDown = 0.10, -- slight chin-down when slow
-			HeadUp = 0.10, -- look further ahead at speed
-			Bounce = 0.04, -- body bob from the suspension
-		},}
+		-- rider animation (keyframed in Blender: blender/anim/ride_anims.blend)
+		AnimBlendSpeed = 7, -- how fast the rider moves between ride / tuck / brake / lean / wheelie
+		Pose = { TorsoLean = 0.35 }, -- forward lean the seat position is fitted for (matches the Blender clips)
+	}
 
 	return Config
 end)()
@@ -70,6 +59,7 @@ local Rig = (function()
 	-- that group's root:
 	--   body        -> RideKit_Chassis   (invisible physics box, carries everything)
 	--   steer       -> RideKit_SteerPivot (forks, bars, levers; turns about the steering axis)
+	--   frontSlide  -> RideKit_FrontSlider (fork lowers / axle bits: steer + slide with the fork, no spin)
 	--   frontSpin   -> RideKit_FrontHub   (front wheel mesh; spins, steers, compresses)
 	--   swing       -> RideKit_SwingPivot (swingarm, chain, mudguard; pivots with the suspension)
 	--   rearSpin    -> RideKit_RearHub    (rear wheel mesh; spins)
@@ -121,7 +111,7 @@ local Rig = (function()
 	end
 
 	--[[ Which group a part belongs to.
-	  info: { name, pos, isFront, isRear, inFront, inRear, ancestors = { {name=, class=}, ... } }
+	  info: { name, pos, isFront, isRear, inFront, inRear, parentIsFront, ancestors = { {name=, class=}, ... } }
 	  ctx : { frontPos, rearPos, radF, radR, steerPos, steerAxis, swingPos, fwd }
 	]]
 	function Rig.classify(info, ctx): string
@@ -136,7 +126,21 @@ local Rig = (function()
 		elseif (pos - ctx.rearPos).Magnitude < ctx.radR * 0.3 then
 			return "rearSpin"
 		end
-		if info.inFront or hasWord(info.name, STEER_WORDS) then
+		if info.inFront then
+			-- parts hung straight off the front wheel, or in its WheelFixed / SuspensionFixed
+			-- model, are fork lowers: they slide with the wheel when the fork compresses
+			if info.parentIsFront then
+				return "frontSlide"
+			end
+			for _, a in ipairs(info.ancestors) do
+				local n = string.lower(a.name)
+				if n == "wheelfixed" or n == "suspensionfixed" then
+					return "frontSlide"
+				end
+			end
+			return "steer"
+		end
+		if hasWord(info.name, STEER_WORDS) then
 			return "steer"
 		end
 		for _, a in ipairs(info.ancestors) do
@@ -238,35 +242,44 @@ local Rig = (function()
 			seatTop = seatPos:Dot(up) - 0.1
 			seatHalfLen = 0.8
 		end
-		-- height: R6 hips 1 stud below the HumanoidRootPart, legs 2 studs
-		local pegY = (d.pegL:Dot(up) + d.pegR:Dot(up)) / 2
-		local hipY
-		if type(cfg.SeatHeight) == "number" then
-			hipY = seatTop + cfg.SeatHeight - 1
-		else
-			hipY = math.clamp(pegY + 2 * 0.96, seatTop - 0.25, seatTop + 0.15)
-		end
-		local riderUp = hipY + 1 - seatPos:Dot(up)
-		-- fore-aft: slide forward along the seat until the hands can reach the grips
-		local forward = cfg.SeatForward
-		if type(forward) ~= "number" then
-			local lean = cfg.Pose.TorsoLean + 0.15
-			local reach = math.sqrt(0.5 * 0.5 + 1.5 * 1.5) * 0.97 -- R6 shoulder joint -> hand
-			local maxF = math.max(seatHalfLen - 0.15, 0)
-			forward = maxF
-			for f = 0, maxF + 1e-6, 0.05 do
-				local hrp = seatPos + up * riderUp + fwd * f
-				local shoulder = hrp + up * (0.5 * math.cos(lean)) + fwd * (0.5 * math.sin(lean))
-				local farGrip = math.max(
-					(gripL - (shoulder - right * 1)).Magnitude,
-					(gripR - (shoulder + right * 1)).Magnitude
-				)
-				if farGrip <= reach then
-					forward = f
-					break
+		-- R6 rider: HumanoidRootPart = torso centre, shoulders 0.5 above it (arms reach 1.5 to the
+		-- hands, which sit 0.5 outboard), hips 1 below it (legs reach 2 to the feet, 0.5 inboard).
+		-- Search the seat position (forward along the seat, hip height) where a natural forward
+		-- lean puts the hands on the grips and the feet near the pegs.
+		local lean = cfg.Pose.TorsoLean
+		local sL, cL = math.sin(lean), math.cos(lean)
+		local aimR, aimL = gripR - right * 0.5, gripL + right * 0.5
+		local footR, footL = d.pegR + right * 0.5, d.pegL - right * 0.5
+		local fixedF = type(cfg.SeatForward) == "number"
+		local fixedH = type(cfg.SeatHeight) == "number"
+		local best, bestF, bestHip = math.huge, 0, seatTop
+		local fMax = if fixedF then cfg.SeatForward else seatHalfLen + 0.3
+		local f0 = if fixedF then cfg.SeatForward else 0
+		local h0 = if fixedH then seatTop + cfg.SeatHeight - 1 else seatTop - 0.3
+		local h1 = if fixedH then h0 else seatTop + 0.15
+		for f = f0, fMax + 1e-6, 0.05 do
+			for hipY = h0, h1 + 1e-6, 0.05 do
+				local base = seatPos + fwd * f
+				local hrp = base + up * (hipY + 1 - seatPos:Dot(up))
+				local sh = hrp + up * (0.5 * cL) + fwd * (0.5 * sL)
+				local hip = hrp - up * cL - fwd * sL
+				local eR = (aimR - (sh + right)).Magnitude - 1.5
+				local eL = (aimL - (sh - right)).Magnitude - 1.5
+				local lR = (footR - (hip + right)).Magnitude - 2
+				local lL = (footL - (hip - right)).Magnitude - 2
+				local function leg(e)
+					return if e > 0 then e * e else 0.3 * e * e -- dangling short is worse than overshoot
+				end
+				local cost = 4 * (eR * eR + eL * eL) + leg(lR) + leg(lL)
+					+ 2 * math.max(0, f - seatHalfLen) ^ 2 -- prefer sitting on the seat
+					+ 2 * math.max(0, seatTop - 0.1 - hipY) ^ 2 -- and not sunk into it
+				if cost < best then
+					best, bestF, bestHip = cost, f, hipY
 				end
 			end
 		end
+		local forward = bestF
+		local riderUp = bestHip + 1 - seatPos:Dot(up)
 		return {
 			gripL = gripL,
 			gripR = gripR,
@@ -416,11 +429,13 @@ local Rig = (function()
 		align.Parent = chassis
 
 		local steerPivot = helper("RideKit_SteerPivot", CFrame.fromMatrix(steerPos, right, steerAxis), bike)
+		local frontSlider = helper("RideKit_FrontSlider", CFrame.fromMatrix(front.Position, right, steerAxis), bike)
 		local frontHub = helper("RideKit_FrontHub", CFrame.fromMatrix(front.Position, right, up), bike)
 		local swingPivot = helper("RideKit_SwingPivot", CFrame.fromMatrix(swingPos, right, up), bike)
 		local rearHub = helper("RideKit_RearHub", CFrame.fromMatrix(rear.Position, right, up), bike)
 		motor("RideKit_SteerMotor", chassis, steerPivot)
-		motor("RideKit_FrontHubMotor", steerPivot, frontHub)
+		motor("RideKit_FrontSlideMotor", steerPivot, frontSlider) -- slides along the steering axis
+		motor("RideKit_FrontHubMotor", frontSlider, frontHub) -- spins
 		motor("RideKit_SwingMotor", chassis, swingPivot)
 		motor("RideKit_RearHubMotor", swingPivot, rearHub)
 
@@ -428,6 +443,7 @@ local Rig = (function()
 		local ours = {
 			[chassis] = true,
 			[steerPivot] = true,
+			[frontSlider] = true,
 			[frontHub] = true,
 			[swingPivot] = true,
 			[rearHub] = true,
@@ -444,8 +460,15 @@ local Rig = (function()
 			right = right,
 			up = up,
 		}
-		local roots = { body = chassis, steer = steerPivot, frontSpin = frontHub, swing = swingPivot, rearSpin = rearHub }
-		local counts = { body = 0, steer = 0, frontSpin = 0, swing = 0, rearSpin = 0 }
+		local roots = {
+			body = chassis,
+			steer = steerPivot,
+			frontSlide = frontSlider,
+			frontSpin = frontHub,
+			swing = swingPivot,
+			rearSpin = rearHub,
+		}
+		local counts = { body = 0, steer = 0, frontSlide = 0, frontSpin = 0, swing = 0, rearSpin = 0 }
 		local bar: BasePart? = nil -- widest steering part = handlebar
 		local barWidth = 0
 		local bodyParts = {}
@@ -460,6 +483,7 @@ local Rig = (function()
 				isRear = part == rear,
 				inFront = part:IsDescendantOf(front),
 				inRear = part:IsDescendantOf(rear),
+				parentIsFront = part.Parent == front,
 				ancestors = ancestorsOf(part, bike),
 			}, ctx)
 			if group == "steer" then
@@ -546,7 +570,8 @@ local Rig = (function()
 		bike:SetAttribute("RideKitReady", true)
 
 		print(
-			`RideKit: {bike.Name} rigged. body {counts.body}, steering {counts.steer}, front wheel {counts.frontSpin}, `
+			`RideKit: {bike.Name} rigged. body {counts.body}, steering {counts.steer}, fork lowers {counts.frontSlide}, `
+				.. `front wheel {counts.frontSpin}, `
 				.. `swingarm {counts.swing}, rear wheel {counts.rearSpin} parts. `
 				.. `Grips from "{if bar then bar.Name else "(guessed)"}", seat "{if seatRef then seatRef.name else "(guessed)"}", `
 				.. `rider {string.format("%.2f", rider.forward)} forward`
@@ -589,6 +614,8 @@ local Physics = (function()
 		self.pitch = 0
 		self.roll = 0
 		self.wheelie = 0
+		self.accel = 0
+		self.lastVF = nil
 	end
 
 	function Physics:setIgnore(list: { Instance })
@@ -703,11 +730,18 @@ local Physics = (function()
 			targetPitch = self.pitch * (1 - dt * 0.4)
 		end
 		self.pitch += (targetPitch - self.pitch) * (1 - math.exp(-10 * dt))
+		-- weight transfer: nose dives under braking, squats under acceleration
+		if self.lastVF then
+			local a = (vF - self.lastVF) / dt
+			self.accel += (a - self.accel) * (1 - math.exp(-8 * dt))
+		end
+		self.lastVF = vF
+		local transfer = if grounded then math.clamp(self.accel * cfg.WeightTransfer, -0.07, 0.05) else 0
 		local wantWheelie = wheelieHeld and hits[2] ~= nil and vF > cfg.WheelieMinSpeed and throttle > 0.3
 		local wTarget = if wantWheelie then math.rad(cfg.WheelieAngle) else 0
 		self.wheelie += (wTarget - self.wheelie) * (1 - math.exp(-(if wantWheelie then 2.5 else 4) * dt))
 
-		self.align.CFrame = CFrame.fromEulerAnglesYXZ(self.pitch + self.wheelie, self.yaw, self.roll)
+		self.align.CFrame = CFrame.fromEulerAnglesYXZ(self.pitch + self.wheelie + transfer, self.yaw, self.roll)
 		return vF
 	end
 

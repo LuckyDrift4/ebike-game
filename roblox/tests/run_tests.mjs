@@ -1,6 +1,5 @@
-// node run_pose_test.mjs [out.jsonl] [test.luau]   (needs: npm install @luau-rs/luau)
-// Prepends the CFrame/Vector3 stand-ins and RideKit's Config/Rig/Pose modules
-// to pose_test.luau and runs it.
+// node run_tests.mjs [test.luau]   (needs: npm install @luau-rs/luau)
+// Runs a Luau test with the CFrame/Vector3 stand-ins and RideKit's modules prepended.
 import { Lua } from '@luau-rs/luau';
 import fs from 'fs';
 import path from 'path';
@@ -13,17 +12,17 @@ const src =
   'local Vector3, CFrame = rbx.Vector3, rbx.CFrame\n' +
   wrap('Config', path.join(kit, 'Config.lua')).replace(/Enum\.KeyCode\.\w+/g, '0') +
   wrap('Rig', path.join(kit, 'Rig.lua')) +
-  wrap('Pose', path.join(kit, 'Pose.lua')) +
   wrap('Physics', path.join(kit, 'Physics.lua')) +
+  wrap('AnimPlayer', path.join(kit, 'AnimPlayer.lua')) +
+  (fs.existsSync(path.join(kit, 'AnimData.lua')) ? wrap('AnimData', path.join(kit, 'AnimData.lua')) : '') +
   wrap('Bikes', path.join(here, 'bikes_data.luau')) +
-  fs.readFileSync(path.join(here, process.argv[3] || 'pose_test.luau'), 'utf8');
+  (fs.existsSync(path.join(here, 'bike_ref.luau')) ? wrap('BikeRef', path.join(here, 'bike_ref.luau')) : '') +
+  fs.readFileSync(path.join(here, process.argv[2] || 'rig_test.luau'), 'utf8');
 const lua = await Lua.create({ sandbox: false });
 const lines = [];
 lua.globals.set('print', lua.createFunction((...a) => { lines.push(a.map(String).join('\t')); }));
 try { lua.execute(src); } catch (e) { console.log('LUA ERROR:', e.message || e); process.exit(1); }
-const out = process.argv[2];
-if (out) fs.writeFileSync(out, lines.filter(l => l.startsWith('CASE ')).map(l => l.slice(5)).join('\n') + '\n');
-// solved joint transforms -> used by build_ridekit.py for the Animation Editor pose
-const xforms = lines.filter(l => l.startsWith('XFORM ')).map(l => l.slice(6));
-if (xforms.length) fs.writeFileSync(path.join(here, 'ride_pose_transforms.json'), '[\n' + xforms.join(',\n') + '\n]\n');
-for (const l of lines) if (!l.startsWith('CASE ') && !l.startsWith('XFORM ')) console.log(l);
+const ref = lines.find(l => l.startsWith('REF '));
+if (ref) fs.writeFileSync(path.join(here, '..', '..', 'blender', 'anim', 'bike_ref.json'), JSON.stringify(JSON.parse(ref.slice(4)), null, 1) + '\n');
+for (const l of lines) if (!l.startsWith('REF ')) console.log(l);
+if (lines.some(l => / FAILED$|^FAIL/.test(l))) process.exit(1);

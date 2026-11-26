@@ -30,3 +30,17 @@
 - After changing anything in `roblox/RideKit/`, regenerate the packages with
   `python roblox/build_ridekit.py` and run the Luau tests in `roblox/tests/`
   (see `run_pose_test.mjs`).
+
+## Rider animation
+
+- **The user wants it made in Blender, not computed in code.** The clips are
+  keyframed in `blender/anim/ride_anims.blend`, built by
+  `blender/anim/make_ride_anims.py`. RideKit's `AnimPlayer` only plays and
+  blends them. Don't bring back the old procedural `Pose` module.
+- **Order of steps after rig changes:**
+  1. `node roblox/tests/run_tests.mjs rig_test.luau`. This writes
+     `blender/anim/bike_ref.json`.
+  2. `blender --background --python blender/anim/make_ride_anims.py`.
+  3. `python roblox/build_ridekit.py`.
+  4. `node roblox/tests/run_tests.mjs anim_test.luau`. This checks the hands
+     are on the grips in-game.

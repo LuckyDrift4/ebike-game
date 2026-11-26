@@ -16,7 +16,7 @@ local Config = {
 	CoastDecel = 5,
 	SteerRate = 2.4, -- heading change (rad/s) at full lock
 	FullTurnSpeed = 10, -- below this speed steering is weaker (a bike can't turn on the spot)
-	MaxSteerAngle = 30, -- visual fork angle at walking pace (less at speed)
+	MaxSteerAngle = 17, -- visual bar angle at walking pace (less at speed; the lean clips are posed at 14)
 	MaxLean = 35, -- lean into corners at speed
 	LeanFullSpeed = 30,
 	LeanResponse = 6,
@@ -25,7 +25,8 @@ local Config = {
 	-- suspension (raycast)
 	SuspensionTravel = 0.5,
 	SpringRate = 1.0, -- 1.0 = sits at half travel; higher = stiffer
-	Damping = 1.0, -- 1.0 = critically damped (no bounce); lower = springier
+	Damping = 0.75, -- 1.0 = no rebound at all; lower = springier (stays stable)
+	WeightTransfer = 0.0012, -- nose dive under braking / squat under throttle (rad per stud/s²)
 	AlignResponsiveness = 40,
 	ChassisDensity = 0.7,
 
@@ -41,21 +42,9 @@ local Config = {
 	GripInset = 0.25, -- hands sit this far in from the ends of the handlebar
 	PegInset = 0.15, -- feet sit this far in from the ends of the foot-peg bar
 
-	-- rider pose (radians). Hands are aimed at the grips and feet at the pegs
-	-- automatically; these only shape the body around them.
-	Pose = {
-		TorsoLean = 0.30, -- leaning forward over the bars
-		TorsoLeanThrottle = 0.10, -- extra tuck when accelerating
-		TorsoLeanSpeed = 0.08, -- extra tuck at top speed
-		BrakeLeanBack = 0.12,
-		WheelieLeanBack = 0.30,
-		MaxExtraLean = 0.45, -- lean up to this much further when the grips are out of reach
-		TurnLean = 0.18, -- rider leans further into the corner than the bike
-		TurnTwist = 0.15, -- shoulders follow the bars (fine-tuned automatically so both hands reach)
-		HeadTurn = 0.30, -- look into the corner
-		HeadDown = 0.10, -- slight chin-down when slow
-		HeadUp = 0.10, -- look further ahead at speed
-		Bounce = 0.04, -- body bob from the suspension
-	},}
+	-- rider animation (keyframed in Blender: blender/anim/ride_anims.blend)
+	AnimBlendSpeed = 7, -- how fast the rider moves between ride / tuck / brake / lean / wheelie
+	Pose = { TorsoLean = 0.35 }, -- forward lean the seat position is fitted for (matches the Blender clips)
+}
 
 return Config
