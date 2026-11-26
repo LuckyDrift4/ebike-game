@@ -270,6 +270,7 @@ function Rig.build(bike: Model, cfg)
 	bike:SetAttribute("RK_RadiusF", radF)
 	bike:SetAttribute("RK_RadiusR", radR)
 	bike:SetAttribute("RK_SwingArm", math.max((rear.Position - swingPos).Magnitude, 0.5))
+	bike:AddTag("RideKitBike")
 	bike:SetAttribute("RideKitReady", true)
 
 	print(

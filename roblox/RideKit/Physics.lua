@@ -4,8 +4,6 @@
 local Physics = {}
 Physics.__index = Physics
 
-export type Wheel = { localPos: Vector3, radius: number }
-
 function Physics.new(bike: Model, cfg)
 	local self = setmetatable({}, Physics)
 	self.bike = bike

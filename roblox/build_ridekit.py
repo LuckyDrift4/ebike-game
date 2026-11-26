@@ -96,7 +96,49 @@ def keyframe_sequence():
             '<token name="Priority">2</token></Properties>\n' + "\n".join(frames) + "\n</Item>\n</roblox>\n")
 
 
+def inline(name, fn):
+    with open(os.path.join(SRC, fn), encoding="utf-8") as f:
+        src = f.read().rstrip("\n")
+    body = "\n".join(("\t" + l) if l.strip() else l for l in src.split("\n"))
+    return f"local {name} = (function()\n{body}\nend)()\n"
+
+
+def body_of(fn):
+    with open(os.path.join(SRC, fn), encoding="utf-8") as f:
+        src = f.read()
+    b = src[src.index("-- @body"):]
+    return b[:b.index("-- @end")] if "-- @end" in b else b
+
+
+def single_files():
+    """Copy-paste versions: one Script for the bike, one LocalScript for StarterPlayerScripts."""
+    server = (
+        "-- RideKit (server). PASTE INTO A *Script* DIRECTLY INSIDE THE BIKE MODEL\n"
+        "-- (the Model that contains the two 'Wheel' parts).\n"
+        "-- Also paste RideKit_Client.lua into a *LocalScript* in StarterPlayer > StarterPlayerScripts.\n\n"
+        'local Players = game:GetService("Players")\n'
+        'local RunService = game:GetService("RunService")\n\n'
+        + inline("Config", "Config.lua") + inline("Rig", "Rig.lua") + inline("Physics", "Physics.lua")
+        + "\nlocal bike = script.Parent :: Model\n\n" + body_of("BikeServer.server.lua"))
+    client = (
+        "-- RideKit (client). PASTE INTO A *LocalScript* IN StarterPlayer > StarterPlayerScripts.\n"
+        "-- Drives, animates and poses (R6) every bike that has the RideKit server Script.\n\n"
+        'local Players = game:GetService("Players")\n'
+        'local RunService = game:GetService("RunService")\n'
+        'local ContextActionService = game:GetService("ContextActionService")\n'
+        'local CollectionService = game:GetService("CollectionService")\n\n'
+        + inline("Config", "Config.lua") + inline("Physics", "Physics.lua") + inline("Pose", "Pose.lua")
+        + "\n" + body_of("BikeClient.client.lua")
+        + "\nfor _, b in ipairs(CollectionService:GetTagged(\"RideKitBike\")) do\n\ttask.spawn(runBike, b)\nend\n"
+        "CollectionService:GetInstanceAddedSignal(\"RideKitBike\"):Connect(function(b)\n\ttask.spawn(runBike, b)\nend)\n")
+    for name, text in (("RideKit_Server.lua", server), ("RideKit_Client.lua", client)):
+        with open(os.path.join(HERE, name), "w", encoding="utf-8") as f:
+            f.write(text)
+        print("wrote", os.path.join(HERE, name))
+
+
 def main():
+    single_files()
     with open(os.path.join(HERE, "RidePose_R6.rbxmx"), "w", encoding="utf-8") as f:
         f.write(keyframe_sequence())
     parts = []

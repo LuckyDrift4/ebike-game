@@ -15,7 +15,21 @@ the static, anchored bike into a rideable one:
 It was written for `surron1.rbxm`. It finds the two invisible `Wheel`
 cylinders, the `TripleTreeHinge` steering pivot and the `RearSwingArmHinge`.
 
-## Set up (2 minutes)
+## Easiest set-up: copy and paste two scripts
+
+1. Delete any broken scripts you made earlier, for example one starting
+   with `<roblox`.
+2. In the Explorer, hover over the bike **Model** (the one with the two
+   `Wheel` parts), click **+** and add a **Script** (a normal Script). Delete
+   the `print("Hello world!")` line and paste **all** of
+   `roblox/RideKit_Server.lua`.
+3. Open **StarterPlayer > StarterPlayerScripts**, click **+** and add a
+   **LocalScript**. Paste **all** of `roblox/RideKit_Client.lua`.
+4. Press **Play**, walk to the bike and press **E**.
+
+Use either this or the `RideKit.rbxmx` method below, not both.
+
+## Set up with Insert from File
 
 1. In Studio, right-click your bike **Model** in the Explorer and choose
    **Insert from File...**, then pick `roblox/RideKit.rbxmx`. The `RideKit`

@@ -11,6 +11,8 @@ local Config = require(kit:WaitForChild("Config"))
 local Rig = require(kit:WaitForChild("Rig"))
 local Physics = require(kit:WaitForChild("Physics"))
 
+-- @body (everything below is shared with the single-file RideKit_Server.lua)
+
 local rig = Rig.build(bike, Config)
 local seat: VehicleSeat = rig.seat
 local chassis: BasePart = rig.chassis
