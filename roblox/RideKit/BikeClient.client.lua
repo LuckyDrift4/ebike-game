@@ -34,6 +34,10 @@ local function runBike(bike: Model)
 	local radR = bike:GetAttribute("RK_RadiusR") :: number
 	local armLen = bike:GetAttribute("RK_SwingArm") :: number
 	local travel = Config.SuspensionTravel
+	local gripL = bike:GetAttribute("RK_GripL") :: Vector3
+	local gripR = bike:GetAttribute("RK_GripR") :: Vector3
+	local pegL = bike:GetAttribute("RK_PegL") :: Vector3
+	local pegR = bike:GetAttribute("RK_PegR") :: Vector3
 
 	-- wheelie input (keyboard / gamepad / mobile button while riding)
 	local wheelieHeld = false
@@ -46,6 +50,7 @@ local function runBike(bike: Model)
 	local wasDriver = false
 	local spinF, spinR, steerVis = 0, 0, 0
 	local riderJoints, riderChar = nil, nil
+	local tookOver = false
 	local poseBounce = 0
 
 	local conn
@@ -100,10 +105,17 @@ local function runBike(bike: Model)
 			if riderJoints then
 				Pose.clear(riderJoints)
 			end
+			if tookOver and riderChar then
+				Pose.release(riderChar)
+			end
 			riderChar = char
 			riderJoints = if char then Pose.joints(char) else nil
+			tookOver = riderJoints ~= nil and char == player.Character -- R6 only; R15 keeps its sit animation
+			if tookOver then
+				Pose.takeOver(char)
+			end
 		end
-		if riderJoints and char then
+		if riderJoints and char and riderJoints.hrp then
 			Pose.silence(char)
 			poseBounce += ((offF + offR) * 0.5 - poseBounce) * (1 - math.exp(-8 * dt))
 			-- wheelie = nose higher than the ground slope under the wheels
@@ -114,7 +126,14 @@ local function runBike(bike: Model)
 				slope = math.asin(math.clamp(d.Y / math.max(d.Magnitude, 0.01), -1, 1))
 			end
 			local wheelieAngle = if hitR and compF <= 0 then math.max(pitch - slope, 0.2) else math.max(pitch - slope, 0)
-			Pose.apply(riderJoints, Config.Pose, {
+			local steerCF = steerPivot.CFrame
+			local chassisCF = chassis.CFrame
+			Pose.solve(riderJoints, riderJoints.hrp.CFrame, chassisCF, {
+				gripL = steerCF * gripL,
+				gripR = steerCF * gripR,
+				pegL = chassisCF * pegL,
+				pegR = chassisCF * pegR,
+			}, Config.Pose, {
 				throttle = throttle,
 				steer = steer,
 				speed = vF,

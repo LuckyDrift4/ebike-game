@@ -70,6 +70,33 @@ local function weld(root: BasePart, part: BasePart)
 	w.Parent = part
 end
 
+-- extent of a box along a world direction
+local function extentAlong(cf: CFrame, size: Vector3, dir: Vector3): number
+	return math.abs(cf.RightVector:Dot(dir)) * size.X
+		+ math.abs(cf.UpVector:Dot(dir)) * size.Y
+		+ math.abs(cf.LookVector:Dot(dir)) * size.Z
+end
+
+-- the two ends of a bar-shaped part along `right` (left end, right end), pulled in by `inset`
+function Rig.lateralEnds(cf: CFrame, size: Vector3, right: Vector3, inset: number, minHalf: number?): (Vector3, Vector3)
+	local half = math.max(extentAlong(cf, size, right) / 2 - inset, minHalf or 0)
+	return cf.Position - right * half, cf.Position + right * half
+end
+Rig.extentAlong = extentAlong
+
+-- HumanoidRootPart height above the seat part's centre for an R6 rider:
+-- as low as needed for the feet to reach the pegs, but hips no deeper than 0.45 into the seat
+function Rig.riderHeight(seatTopY: number, seatCenterY: number, pegY: number?, cfg): number
+	if type(cfg.SeatHeight) == "number" then
+		return seatTopY - seatCenterY + cfg.SeatHeight
+	end
+	local hipY = seatTopY + 0.05
+	if pegY then
+		hipY = math.clamp(pegY + 2 * 0.96, seatTopY - 0.45, seatTopY + 0.15)
+	end
+	return hipY + 1 - seatCenterY -- R6: HumanoidRootPart is 1 stud above the hips
+end
+
 -- perpendicular distance from point p to the line through a with unit direction d,
 -- and the coordinate of p along that line
 local function lineDistance(p: Vector3, a: Vector3, d: Vector3): (number, number)
@@ -186,6 +213,9 @@ function Rig.build(bike: Model, cfg)
 		[rearHub] = true,
 	}
 	local counts = { body = 0, steer = 0, frontSpin = 0, swing = 0, rearSpin = 0 }
+	local bar: BasePart? = nil -- widest steering part = handlebar
+	local barWidth = 0
+	local pegs: BasePart? = nil
 	for _, part in ipairs(bike:GetDescendants()) do
 		if not part:IsA("BasePart") or ours[part] then
 			continue
@@ -217,6 +247,14 @@ function Rig.build(bike: Model, cfg)
 			swing = swingPivot,
 			rearSpin = rearHub,
 		})[group]
+		if group == "steer" then
+			local w = extentAlong(part.CFrame, part.Size, right)
+			if w > barWidth then
+				bar, barWidth = part, w
+			end
+		elseif group == "body" and not pegs and string.find(string.lower(part.Name), "peg", 1, true) then
+			pegs = part
+		end
 		weld(root, part)
 		part.Anchored = false
 		part.CanCollide = false
@@ -239,6 +277,24 @@ function Rig.build(bike: Model, cfg)
 	else
 		seatPos = center + up * (radR * 1.6) - fwd * wheelbase * 0.1
 	end
+	-- rider targets: grips (in steering space, so they turn with the bars) and pegs
+	local gripL, gripR
+	if bar then
+		gripL, gripR = Rig.lateralEnds(bar.CFrame, bar.Size, right, cfg.GripInset, 0.6)
+	else
+		local c = steerPos + steerAxis * 0.9 - fwd * 0.3
+		gripL, gripR = c - right * 1.1, c + right * 1.1
+	end
+	local pegL, pegR
+	if pegs then
+		pegL, pegR = Rig.lateralEnds(pegs.CFrame, pegs.Size, right, cfg.PegInset, 0.55)
+	else
+		local c = swingPos + fwd * 0.35 + up * 0.05
+		pegL, pegR = c - right * 0.6, c + right * 0.6
+	end
+	local seatTop = seatPos.Y - 0.1
+	local riderY = Rig.riderHeight(seatTop, seatPos.Y, (pegL.Y + pegR.Y) / 2, cfg)
+
 	local seat = Instance.new("VehicleSeat")
 	seat.Name = "RideKit_Seat"
 	seat.Size = Vector3.new(1, 0.2, 1.2)
@@ -270,12 +326,18 @@ function Rig.build(bike: Model, cfg)
 	bike:SetAttribute("RK_RadiusF", radF)
 	bike:SetAttribute("RK_RadiusR", radR)
 	bike:SetAttribute("RK_SwingArm", math.max((rear.Position - swingPos).Magnitude, 0.5))
+	bike:SetAttribute("RK_GripL", steerPivot.CFrame:PointToObjectSpace(gripL))
+	bike:SetAttribute("RK_GripR", steerPivot.CFrame:PointToObjectSpace(gripR))
+	bike:SetAttribute("RK_PegL", chassis.CFrame:PointToObjectSpace(pegL))
+	bike:SetAttribute("RK_PegR", chassis.CFrame:PointToObjectSpace(pegR))
+	bike:SetAttribute("RK_RiderOffset", Vector3.new(0, riderY, -cfg.SeatForward))
 	bike:AddTag("RideKitBike")
 	bike:SetAttribute("RideKitReady", true)
 
 	print(
 		`RideKit: {bike.Name} rigged. body {counts.body}, steering {counts.steer}, front wheel {counts.frontSpin}, `
-			.. `swingarm {counts.swing}, rear wheel {counts.rearSpin} parts`
+			.. `swingarm {counts.swing}, rear wheel {counts.rearSpin} parts. `
+			.. `Grips from "{if bar then bar.Name else "(guessed)"}", pegs from "{if pegs then pegs.Name else "(guessed)"}"`
 	)
 	return { chassis = chassis, seat = seat, prompt = prompt, align = align }
 end

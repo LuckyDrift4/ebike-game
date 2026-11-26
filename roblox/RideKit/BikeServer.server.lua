@@ -28,11 +28,11 @@ prompt.Triggered:Connect(function(player)
 	end
 end)
 
--- place the rider on the seat (default seat welds put R6 too high)
+-- place the rider on the seat: low enough for the feet to reach the pegs
 seat.ChildAdded:Connect(function(child)
 	if child.Name == "SeatWeld" and child:IsA("Weld") then
 		task.defer(function()
-			child.C0 = CFrame.new(0, seat.Size.Y / 2 + Config.SeatHeight, -Config.SeatForward)
+			child.C0 = CFrame.new(bike:GetAttribute("RK_RiderOffset"))
 			child.C1 = CFrame.new()
 		end)
 	end

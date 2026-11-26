@@ -49,15 +49,28 @@ Use either this or the `RideKit.rbxmx` method below, not both.
 
 ## Tuning
 
-Open `RideKit > Config` while play-testing:
+The rider is placed automatically:
+- **Hands:** aimed at the ends of the handlebar, so they follow the bars when
+  you steer.
+- **Feet:** aimed at the foot pegs.
+- **Height:** the rider sits just low enough for the feet to reach the pegs.
+- **Head:** looks down the road and into corners.
 
-- **Rider position:** `SeatHeight` and `SeatForward` move the rider on the
-  seat. Raise `SeatHeight` if the legs sink into the bike.
-- **Pose:** `Pose.ArmWorld` (hands to the grips), `Pose.LegWorld` and
-  `Pose.LegSpread` (feet to the pegs), and `Pose.TorsoLean` (how far the
-  rider leans over the bars).
+The Output line `Grips from "...", pegs from "..."` shows which parts were
+used. To adjust things, open `RideKit > Config` (or the top of the server
+script):
+
+- **Rider position:** `SeatForward` slides the rider toward the bars.
+  `SeatHeight` is `"auto"` or a fixed number.
+- **Hands and feet:** `GripInset` and `PegInset` move them inwards from the
+  ends of the bar and pegs.
+- **Body:** `Pose.TorsoLean` sets how far the rider leans over the bars, and
+  `Pose.TurnLean`, `Pose.HeadTurn` and the others shape the body.
 - **Handling:** `MaxSpeed`, `Acceleration`, `SteerRate`, `MaxLean`,
   `WheelieAngle` and the suspension values.
+
+The R6 default `Animate` script would fight the pose while seated, so it is
+paused for the local rider while riding and turned back on when they get off.
 
 ## Optional: the pose as an Animation Editor animation
 

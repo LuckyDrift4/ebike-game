@@ -4,3 +4,4 @@
 __pycache__/
 # reference-overlay debug renders
 renders/_check/
+node_modules/

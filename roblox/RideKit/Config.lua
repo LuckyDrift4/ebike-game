@@ -35,26 +35,27 @@ local Config = {
 	WheelieMinSpeed = 6,
 
 	-- rider placement on the seat (R6)
-	SeatHeight = 1.0, -- HumanoidRootPart height above the seat top
-	SeatForward = 0.3, -- slide the rider forward on the seat
+	SeatHeight = "auto", -- "auto" = as low as needed for the feet to reach the pegs, or a number
+	-- (HumanoidRootPart height above the seat top, e.g. 1.0)
+	SeatForward = 0.55, -- slide the rider forward on the seat (towards the bars)
+	GripInset = 0.25, -- hands sit this far in from the ends of the handlebar
+	PegInset = 0.15, -- feet sit this far in from the ends of the foot-peg bar
 
-	-- rider pose (radians). "World" angles are measured from straight down,
-	-- the code subtracts the torso lean so hands/feet stay on the bars/pegs.
+	-- rider pose (radians). Hands are aimed at the grips and feet at the pegs
+	-- automatically; these only shape the body around them.
 	Pose = {
-		TorsoLean = 0.34, -- leaning forward over the bars
+		TorsoLean = 0.30, -- leaning forward over the bars
 		TorsoLeanThrottle = 0.10, -- extra tuck when accelerating
 		TorsoLeanSpeed = 0.08, -- extra tuck at top speed
 		BrakeLeanBack = 0.12,
-		WheelieLeanBack = 0.35,
-		TurnLean = 0.20, -- rider leans further into the corner than the bike
-		TurnTwist = 0.12, -- shoulders follow the bars
-		HeadUp = 0.30, -- keep looking ahead
-		ArmWorld = 1.05, -- arms reaching forward-down to the grips
-		ArmSteer = 0.22,
-		LegWorld = 0.20, -- shins forward to the pegs
-		LegSpread = 0.18, -- knees out around the bike
+		WheelieLeanBack = 0.30,
+		MaxExtraLean = 0.45, -- lean up to this much further when the grips are out of reach
+		TurnLean = 0.18, -- rider leans further into the corner than the bike
+		TurnTwist = 0.15, -- shoulders follow the bars (fine-tuned automatically so both hands reach)
+		HeadTurn = 0.30, -- look into the corner
+		HeadDown = 0.10, -- slight chin-down when slow
+		HeadUp = 0.10, -- look further ahead at speed
 		Bounce = 0.04, -- body bob from the suspension
-	},
-}
+	},}
 
 return Config
