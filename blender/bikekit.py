@@ -510,6 +510,106 @@ def inflate_mesh(loops, h, t_fn, r, c_fn=None, frame=None, rings=3, fn=None, poc
 
 
 # --------------------------------------------------------------------------- #
+#  Decals: thin UV-mapped sheets carrying printed graphics / lettering
+# --------------------------------------------------------------------------- #
+def decal_planar(bm, loop_yz, x, rect, facing, h=0.01):
+    """Flat printed sheet in the plane X = x, shaped like `loop_yz`, facing +X
+    (facing=1) or -X (facing=-1). rect=(y0, z0, y1, z1) maps to UV 0..1."""
+    uv = bm.loops.layers.uv.verify()
+    outer = _subdivide_loop(loop_yz, h)
+    edges = [(i, (i + 1) % len(outer)) for i in range(len(outer))]
+    mn, mx = outer.min(0), outer.max(0)
+    xs = np.arange(mn[0] + h / 2, mx[0], h)
+    zs = np.arange(mn[1] + h / 2, mx[1], h)
+    G = np.array([(a, b) for a in xs for b in zs]) if len(xs) and len(zs) else np.zeros((0, 2))
+    if len(G):
+        G = G[_inside(G, outer)]
+    P = np.concatenate([outer, G]) if len(G) else outer
+    res = geometry.delaunay_2d_cdt([Vector(p) for p in P], edges, [], 1, 1e-7)
+    V2 = res[0]
+    vs = [bm.verts.new((x, p[0], p[1])) for p in V2]
+    y0, z0, y1, z1 = rect
+    for f in res[2]:
+        if len(f) != 3:
+            continue
+        c = sum((Vector(V2[i]) for i in f), Vector((0, 0))) / 3
+        if not _inside(np.array([tuple(c)]), outer)[0]:
+            continue
+        a, b, cc = (vs[i] for i in f)
+        n = (b.co - a.co).cross(cc.co - a.co)
+        tri = (a, b, cc) if n.x * facing > 0 else (a, cc, b)
+        try:
+            face = bm.faces.new(tri)
+        except ValueError:
+            continue
+        for lp in face.loops:
+            lp[uv].uv = ((lp.vert.co.y - y0) / (y1 - y0), (lp.vert.co.z - z0) / (z1 - z0))
+
+
+def decal_tire_band(bm, center, side, r0, r1, a_of_r, segs=144, flip=False):
+    """Ring band on a tyre sidewall (u around, v across), facing outwards (side=+1/-1)."""
+    uv = bm.loops.layers.uv.verify()
+    c = Vector(center)
+    rings = []
+    nr = 4
+    for j in range(nr + 1):
+        r = r0 + (r1 - r0) * j / nr
+        a = side * a_of_r(r)
+        rings.append([bm.verts.new(c + Vector((a, r * math.cos(TAU * k / segs), r * math.sin(TAU * k / segs))))
+                      for k in range(segs)])
+    for j in range(nr):
+        for k in range(segs):
+            k1 = (k + 1) % segs
+            quad = [rings[j][k], rings[j][k1], rings[j + 1][k1], rings[j + 1][k]]
+            n = (quad[1].co - quad[0].co).cross(quad[3].co - quad[0].co)
+            if n.x * side < 0:
+                quad.reverse()
+            face = bm.faces.new(quad)
+            for lp in face.loops:
+                vco = lp.vert.co - c
+                t = math.atan2(vco.z, vco.y) % TAU
+                if k1 == 0 and t < 1e-6 + TAU / segs * 0.5 and (lp.vert in (rings[j][0], rings[j + 1][0])):
+                    t = TAU
+                u = t / TAU
+                if flip:
+                    u = 1.0 - u
+                rr = math.hypot(vco.y, vco.z)
+                lp[uv].uv = (u, (rr - r0) / (r1 - r0))
+
+
+def decal_wrap(bm, p0, p1, r, center_dir, half_angle, segs=16, flip=False):
+    """Partial cylinder sleeve around the axis p0->p1, centred on direction center_dir."""
+    uv = bm.loops.layers.uv.verify()
+    p0, p1 = Vector(p0), Vector(p1)
+    ax = (p1 - p0).normalized()
+    cd = Vector(center_dir)
+    cd = (cd - ax * cd.dot(ax)).normalized()
+    bd = ax.cross(cd)
+    rows = []
+    for t in (0.0, 1.0):
+        base = p0.lerp(p1, t)
+        row = []
+        for k in range(segs + 1):
+            a = -half_angle + 2 * half_angle * k / segs
+            row.append(bm.verts.new(base + r * (math.cos(a) * cd + math.sin(a) * bd)))
+        rows.append(row)
+    for k in range(segs):
+        quad = [rows[0][k], rows[0][k + 1], rows[1][k + 1], rows[1][k]]
+        mid = (quad[0].co + quad[2].co) / 2
+        out = mid - p0
+        out -= ax * out.dot(ax)
+        n = (quad[1].co - quad[0].co).cross(quad[3].co - quad[0].co)
+        if n.dot(out) < 0:
+            quad.reverse()
+        face = bm.faces.new(quad)
+        for lp in face.loops:
+            kk = rows[0].index(lp.vert) if lp.vert in rows[0] else rows[1].index(lp.vert)
+            v = 0.0 if lp.vert in rows[0] else 1.0
+            u = kk / segs
+            lp[uv].uv = ((1.0 - u) if flip else u, v)
+
+
+# --------------------------------------------------------------------------- #
 #  Builder: materials, accumulation per (group, material), finalisation
 # --------------------------------------------------------------------------- #
 def _surface_texture(nt, bsdf, kind, scale, strength):
@@ -582,8 +682,10 @@ def _split_bmesh(bm, max_tris):
     if cur:
         groups.append(cur)
     out = []
+    uv_src = bm.loops.layers.uv.active
     for grp in groups:
         nb = bmesh.new()
+        uv_dst = nb.loops.layers.uv.new("UVMap") if uv_src else None
         vmap = {}
         for isl in grp:
             for f in isl:
@@ -593,9 +695,12 @@ def _split_bmesh(bm, max_tris):
                         vmap[v.index] = nb.verts.new(v.co)
                     vs.append(vmap[v.index])
                 try:
-                    nb.faces.new(vs)
+                    nf = nb.faces.new(vs)
                 except ValueError:
-                    pass
+                    continue
+                if uv_src:
+                    for l_new, l_old in zip(nf.loops, f.loops):
+                        l_new[uv_dst].uv = l_old[uv_src].uv
         out.append(nb)
     bm.free()
     return out
@@ -718,13 +823,14 @@ class Builder:
         self.coll = bpy.data.collections.new(name)
         bpy.context.scene.collection.children.link(self.coll)
         self.mats = {}
+        self.decal_mats = set()
         self.bms = {}
         self.pivots = {}
         self.objects = []
 
     # materials ---------------------------------------------------------------
     def material(self, key, rgb, metal=0.0, rough=0.5, coat=0.0, emit=0.0, spec=0.5, bump=None,
-                 aniso=0.0, bevel=0.0015, dirt=0.0, wear=0.0):
+                 aniso=0.0, bevel=0.0015, dirt=0.0, wear=0.0, image=None):
         name = f"{self.name}_{key}"
         m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
         m.diffuse_color = (*rgb, 1.0)
@@ -745,6 +851,13 @@ class Builder:
             b.inputs["Emission Strength"].default_value = emit
         if aniso:
             b.inputs["Anisotropic"].default_value = aniso
+        if image:  # printed decal: UV-mapped image drives the base colour
+            tex = nt.nodes.new("ShaderNodeTexImage")
+            tex.image = bpy.data.images.load(image, check_existing=True)
+            tex.interpolation = 'Cubic'
+            nt.links.new(tex.outputs["Color"], b.inputs["Base Color"])
+            self.decal_mats.add(key)
+            dirt = wear = 0.0
         if bump:
             _surface_texture(nt, b, *bump)
         if bevel and emit == 0:
@@ -807,7 +920,8 @@ class Builder:
             if not bm.faces:
                 bm.free()
                 continue
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+            if mat not in self.decal_mats:   # decal sheets are built facing outwards already
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
             bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method='BEAUTY', ngon_method='BEAUTY')
             for idx, chunk in enumerate(_split_bmesh(bm, max_tris)):
                 name = f"{self.name}_{group}_{mat}" + (str(idx + 1) if idx else "")
@@ -1442,7 +1556,7 @@ def export(objs, fbx_path=None, glb_path=None):
         o.select_set(True)
     bpy.context.view_layer.objects.active = objs[0]
     if fbx_path:
-        bpy.ops.export_scene.fbx(filepath=fbx_path, use_selection=True, object_types={'MESH'},
+        bpy.ops.export_scene.fbx(filepath=fbx_path, use_selection=True, object_types={'MESH'}, embed_textures=True,
                                  apply_unit_scale=True, apply_scale_options='FBX_SCALE_ALL',
                                  axis_forward='Z', axis_up='Y', mesh_smooth_type='OFF',
                                  use_mesh_modifiers=True, add_leaf_bones=False, bake_space_transform=True,
