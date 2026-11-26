@@ -1,6 +1,3 @@
--- RideKit (client). PASTE INTO A *LocalScript* IN StarterPlayer > StarterPlayerScripts.
--- Drives, animates and poses (R6) every bike that has the RideKit server Script.
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ContextActionService = game:GetService("ContextActionService")

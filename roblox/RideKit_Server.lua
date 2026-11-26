@@ -1,7 +1,3 @@
--- RideKit (server). PASTE INTO A *Script* DIRECTLY INSIDE THE BIKE MODEL
--- (the Model that contains the two 'Wheel' parts).
--- Also paste RideKit_Client.lua into a *LocalScript* in StarterPlayer > StarterPlayerScripts.
-
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 

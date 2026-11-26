@@ -97,17 +97,14 @@ def body_of(fn):
 
 def single_files():
     """Copy-paste versions: one Script for the bike, one LocalScript for StarterPlayerScripts."""
+    # NOTE: paste-in files must start with code, not prose comment lines: if a
+    # paste drops the start of a comment line, the leftover text breaks the script.
     server = (
-        "-- RideKit (server). PASTE INTO A *Script* DIRECTLY INSIDE THE BIKE MODEL\n"
-        "-- (the Model that contains the two 'Wheel' parts).\n"
-        "-- Also paste RideKit_Client.lua into a *LocalScript* in StarterPlayer > StarterPlayerScripts.\n\n"
         'local Players = game:GetService("Players")\n'
         'local RunService = game:GetService("RunService")\n\n'
         + inline("Config", "Config.lua") + inline("Rig", "Rig.lua") + inline("Physics", "Physics.lua")
         + "\nlocal bike = script.Parent :: Model\n\n" + body_of("BikeServer.server.lua"))
     client = (
-        "-- RideKit (client). PASTE INTO A *LocalScript* IN StarterPlayer > StarterPlayerScripts.\n"
-        "-- Drives, animates and poses (R6) every bike that has the RideKit server Script.\n\n"
         'local Players = game:GetService("Players")\n'
         'local RunService = game:GetService("RunService")\n'
         'local ContextActionService = game:GetService("ContextActionService")\n'
