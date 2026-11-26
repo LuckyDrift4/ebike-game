@@ -613,6 +613,63 @@ def _edge_bevel(nt, bsdf, radius):
         nt.links.new(bev.outputs["Normal"], bsdf.inputs["Normal"])
 
 
+def _wear(nt, bsdf, amount):
+    """Scuffed paint: bare metal shows through on sharp convex edges and in fine
+    scratches (Cycles 'Pointiness' + stretched noise). Render-only."""
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    edge = nt.nodes.new("ShaderNodeMapRange")
+    edge.inputs["From Min"].default_value = 0.53
+    edge.inputs["From Max"].default_value = 0.62
+    nt.links.new(geo.outputs["Pointiness"], edge.inputs["Value"])
+    nz = nt.nodes.new("ShaderNodeTexNoise")
+    nz.inputs["Scale"].default_value = 35.0
+    nz.inputs["Detail"].default_value = 8.0
+    nt.links.new(geo.outputs["Position"], nz.inputs["Vector"])
+    patchy = nt.nodes.new("ShaderNodeMapRange")
+    patchy.inputs["From Min"].default_value = 0.45
+    patchy.inputs["From Max"].default_value = 0.6
+    nt.links.new(nz.outputs["Fac"], patchy.inputs["Value"])
+    m1 = nt.nodes.new("ShaderNodeMath")
+    m1.operation = 'MULTIPLY'
+    nt.links.new(edge.outputs["Result"], m1.inputs[0])
+    nt.links.new(patchy.outputs["Result"], m1.inputs[1])
+    # fine scratches: noise stretched along one axis, thresholded hard
+    mp = nt.nodes.new("ShaderNodeMapping")
+    mp.inputs["Scale"].default_value = (2.0, 2.0, 90.0)
+    mp.inputs["Rotation"].default_value = (0.4, 0.9, 0.2)
+    nt.links.new(geo.outputs["Position"], mp.inputs["Vector"])
+    sc = nt.nodes.new("ShaderNodeTexNoise")
+    sc.inputs["Scale"].default_value = 60.0
+    sc.inputs["Detail"].default_value = 2.0
+    nt.links.new(mp.outputs["Vector"], sc.inputs["Vector"])
+    scr = nt.nodes.new("ShaderNodeMapRange")
+    scr.inputs["From Min"].default_value = 0.70
+    scr.inputs["From Max"].default_value = 0.74
+    scr.inputs["To Max"].default_value = 0.6
+    nt.links.new(sc.outputs["Fac"], scr.inputs["Value"])
+    mx = nt.nodes.new("ShaderNodeMath")
+    mx.operation = 'MAXIMUM'
+    nt.links.new(m1.outputs[0], mx.inputs[0])
+    nt.links.new(scr.outputs["Result"], mx.inputs[1])
+    fac = nt.nodes.new("ShaderNodeMath")
+    fac.operation = 'MULTIPLY'
+    fac.use_clamp = True
+    fac.inputs[1].default_value = amount
+    nt.links.new(mx.outputs[0], fac.inputs[0])
+    base = bsdf.inputs["Base Color"].default_value[:]
+    mixc = nt.nodes.new("ShaderNodeMix")
+    mixc.data_type = 'RGBA'
+    mixc.inputs["A"].default_value = base
+    mixc.inputs["B"].default_value = (0.26, 0.265, 0.275, 1.0)
+    nt.links.new(fac.outputs[0], mixc.inputs["Factor"])
+    nt.links.new(mixc.outputs["Result"], bsdf.inputs["Base Color"])
+    mm = nt.nodes.new("ShaderNodeMapRange")
+    mm.inputs["To Min"].default_value = bsdf.inputs["Metallic"].default_value
+    mm.inputs["To Max"].default_value = 1.0
+    nt.links.new(fac.outputs[0], mm.inputs["Value"])
+    nt.links.new(mm.outputs["Result"], bsdf.inputs["Metallic"])
+
+
 def _dust(nt, bsdf, amount):
     """Dusty, scuffed lower parts: more dirt close to the ground, broken up by noise."""
     geo = nt.nodes.new("ShaderNodeNewGeometry")
@@ -667,7 +724,7 @@ class Builder:
 
     # materials ---------------------------------------------------------------
     def material(self, key, rgb, metal=0.0, rough=0.5, coat=0.0, emit=0.0, spec=0.5, bump=None,
-                 aniso=0.0, bevel=0.0015, dirt=0.0):
+                 aniso=0.0, bevel=0.0015, dirt=0.0, wear=0.0):
         name = f"{self.name}_{key}"
         m = bpy.data.materials.get(name) or bpy.data.materials.new(name)
         m.diffuse_color = (*rgb, 1.0)
@@ -692,6 +749,8 @@ class Builder:
             _surface_texture(nt, b, *bump)
         if bevel and emit == 0:
             _edge_bevel(nt, b, bevel)
+        if wear:
+            _wear(nt, b, wear)
         if dirt:
             _dust(nt, b, dirt)
         self.mats[key] = m

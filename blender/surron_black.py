@@ -17,7 +17,7 @@ import surron as base
 
 NAME = "SurRonBlack"
 REF = base.REF
-STYLE = dict(graphics=False, full_ribs=True)
+STYLE = dict(graphics=False, full_ribs=True, fork_guards=True)
 # renders: an open dirt quarry instead of the city square
 SCENE = dict(hdri="quarry_01_1k.hdr", rot=290.0)
 
@@ -27,9 +27,9 @@ BRONZE = (0.50, 0.33, 0.13)
 def materials(B):
     # satin / textured blacks, each slightly different like the real bike
     B.material("frame", (0.020, 0.020, 0.022), metal=0.35, rough=0.48, coat=0.15, bump=("noise", 900, 0.07),
-               dirt=0.18)
-    B.material("panel", (0.024, 0.024, 0.027), rough=0.55, bump=("noise", 700, 0.05), dirt=0.1)
-    B.material("black", (0.016, 0.016, 0.018), rough=0.5, bump=("noise", 800, 0.06), dirt=0.2)
+               dirt=0.18, wear=0.6)
+    B.material("panel", (0.024, 0.024, 0.027), rough=0.55, bump=("noise", 700, 0.05), dirt=0.1, wear=0.3)
+    B.material("black", (0.016, 0.016, 0.018), rough=0.5, bump=("noise", 800, 0.06), dirt=0.2, wear=0.35)
     B.material("battery", (0.03, 0.03, 0.034), rough=0.6, dirt=0.15)
     B.material("seat", (0.02, 0.02, 0.022), rough=0.72, bump=("grip", 260, 0.4))
     B.material("grip", (0.02, 0.02, 0.02), rough=0.8, bump=("grip", 500, 0.35))
