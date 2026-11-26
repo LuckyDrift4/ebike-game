@@ -12,8 +12,20 @@ the static, anchored bike into a rideable one:
   leaning back on wheelies, and the head up at speed. Everyone sees it and
   nothing needs uploading.
 
-It was written for `surron1.rbxm`. It finds the two invisible `Wheel`
-cylinders, the `TripleTreeHinge` steering pivot and the `RearSwingArmHinge`.
+It works with both bike models:
+
+- **`surron1.rbxm`:** parts named fork, handlebar and swingarm.
+- **`surron2.rbxm`:** the chassis-kit layout.
+  - `Misc > Wheel` is the handlebar assembly.
+  - `FrontSection` and `RearSection` each have a `Wheel` part with `Parts` and
+    `WheelFixed` inside.
+  - `Misc > Step` holds the foot pegs.
+  - The seat is found by its shape.
+
+Both need two invisible `Wheel` parts, a `TripleTreeHinge` and a
+`RearSwingArmHinge`. If the model has a looped motor sound, a `Wind` sound or a
+brake light (`Lights > brk`), RideKit uses them: the motor pitch rises with
+speed and the brake light turns on when you brake.
 
 ## Easiest set-up: copy and paste two scripts
 

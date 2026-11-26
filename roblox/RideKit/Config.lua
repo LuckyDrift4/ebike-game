@@ -5,7 +5,7 @@ local Config = {
 	WheelPartName = "Wheel", -- the two invisible cylinder wheels
 	SteerHingeName = "TripleTreeHinge", -- steering head (fork pivots around this)
 	SwingHingeName = "RearSwingArmHinge", -- swingarm pivot
-	SeatPartKeyword = "seat", -- first part whose name contains this is used to place the seat
+	SeatPartKeyword = "seat", -- part whose name contains this is the seat (else the highest seat-shaped part)
 	FallbackRake = 26, -- steering-axis angle if there is no TripleTreeHinge
 
 	-- engine / handling
@@ -37,7 +37,7 @@ local Config = {
 	-- rider placement on the seat (R6)
 	SeatHeight = "auto", -- "auto" = as low as needed for the feet to reach the pegs, or a number
 	-- (HumanoidRootPart height above the seat top, e.g. 1.0)
-	SeatForward = 0.55, -- slide the rider forward on the seat (towards the bars)
+	SeatForward = "auto", -- "auto" = slide forward until the hands reach the bars, or a number
 	GripInset = 0.25, -- hands sit this far in from the ends of the handlebar
 	PegInset = 0.15, -- feet sit this far in from the ends of the foot-peg bar
 

@@ -51,6 +51,34 @@ local function runBike(bike: Model)
 	local riderJoints, riderChar = nil, nil
 	local tookOver = false
 	local poseBounce = 0
+
+	-- motor / wind sounds and brake lights already in the model (played locally)
+	local engineSound, windSound = nil, nil
+	for _, d in ipairs(bike:GetDescendants()) do
+		if d:IsA("Sound") then
+			if string.lower(d.Name) == "wind" then
+				windSound = d
+			elseif d.Looped and not engineSound then
+				engineSound = d
+			end
+		end
+	end
+	local engineVol = if engineSound then engineSound.Volume else 0
+	local windVol = if windSound then windSound.Volume else 0
+	local brakeLights = {}
+	for _, d in ipairs(bike:GetDescendants()) do
+		if d:IsA("Light") then
+			local a = d.Parent
+			while a and a ~= bike do
+				local n = string.lower(a.Name)
+				if n == "brk" or string.find(n, "brakelight", 1, true) or string.find(n, "brake light", 1, true) then
+					table.insert(brakeLights, d)
+					break
+				end
+				a = a.Parent
+			end
+		end
+	end
 	local offF, offR = 0, 0
 
 	local conn
@@ -101,6 +129,26 @@ local function runBike(bike: Model)
 		frontHubMotor.Transform = CFrame.new(0, offF, 0) * CFrame.Angles(-spinF, 0, 0)
 		swingMotor.Transform = CFrame.Angles(-math.asin(math.clamp(offR / armLen, -0.5, 0.5)), 0, 0)
 		rearHubMotor.Transform = CFrame.Angles(-spinR, 0, 0)
+
+		-- sounds and brake light
+		local braking = char ~= nil and throttle < -0.1 and vF > 1
+		for _, l in ipairs(brakeLights) do
+			l.Enabled = braking
+		end
+		if engineSound then
+			local level = math.max(speedFrac, math.abs(throttle) * 0.6)
+			engineSound.PlaybackSpeed = 0.6 + 1.1 * speedFrac + 0.15 * math.max(throttle, 0)
+			engineSound.Volume = if char then engineVol * (0.35 + 0.65 * level) else 0
+			if char and not engineSound.IsPlaying then
+				engineSound:Play()
+			end
+		end
+		if windSound then
+			windSound.Volume = windVol * speedFrac
+			if speedFrac > 0.05 and not windSound.IsPlaying then
+				windSound:Play()
+			end
+		end
 
 		-- rider pose
 		if char ~= riderChar then

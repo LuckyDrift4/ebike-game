@@ -15,6 +15,7 @@ const src =
   wrap('Rig', path.join(kit, 'Rig.lua')) +
   wrap('Pose', path.join(kit, 'Pose.lua')) +
   wrap('Physics', path.join(kit, 'Physics.lua')) +
+  wrap('Bikes', path.join(here, 'bikes_data.luau')) +
   fs.readFileSync(path.join(here, process.argv[3] || 'pose_test.luau'), 'utf8');
 const lua = await Lua.create({ sandbox: false });
 const lines = [];

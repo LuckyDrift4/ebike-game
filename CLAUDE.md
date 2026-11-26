@@ -16,8 +16,17 @@
     the first N characters and running StyLua `--check`.
 - Never ask the user to paste a `.rbxmx` / `.rbxm` file into a script. Those
   are model files for **Insert from File**. Prefer the two paste-in scripts.
-- The rider is an R6 avatar. The bike model is `surron1.rbxm` (two invisible
-  `Wheel` parts, `TripleTreeHinge`, `RearSwingArmHinge`).
+- The rider is an R6 avatar.
+- The current bike model is `surron2.rbxm`, a chassis-kit layout:
+  - `Misc > Wheel` is the handlebars.
+  - `FrontSection` and `RearSection` each hold a `Wheel` part with `Parts` /
+    `WheelFixed` inside.
+  - `Misc > Step` holds the pegs.
+  - The seat is `attachments_Mesh.002_zeus-web...`, found by its shape.
+- `surron1.rbxm` must keep working too.
+- `roblox/tests/bikes_data.luau` holds both models' part data. The tests check
+  that parts are sorted correctly, that the right seat, pegs and grips are
+  picked, and the pose on both bikes.
 - After changing anything in `roblox/RideKit/`, regenerate the packages with
   `python roblox/build_ridekit.py` and run the Luau tests in `roblox/tests/`
   (see `run_pose_test.mjs`).
