@@ -1924,6 +1924,26 @@ local function runBike(bike: Model)
 		end)
 	end
 
+	-- crashes off and it still ended up on its side (a big hit)? The rider stands it back up
+	local downTime = 0
+	local function standUp()
+		local cf = chassis.CFrame
+		local look = cf.LookVector
+		local flat = Vector3.new(look.X, 0, look.Z)
+		if flat.Magnitude < 0.1 then
+			flat = Vector3.new(cf.UpVector.X, 0, cf.UpVector.Z)
+		end
+		flat = if flat.Magnitude > 0.01 then flat.Unit else Vector3.zAxis
+		local hit = workspace:Raycast(cf.Position + Vector3.yAxis * 6, Vector3.yAxis * -30, physics.params)
+		local ground = if hit then hit.Position.Y else cf.Position.Y - 3
+		local rear = bike:GetAttribute("RK_RearAxle") :: Vector3
+		local pos = Vector3.new(cf.Position.X, ground - rear.Y + radR + 0.2, cf.Position.Z)
+		chassis.AssemblyLinearVelocity = Vector3.zero
+		chassis.AssemblyAngularVelocity = Vector3.zero
+		chassis.CFrame = CFrame.lookAt(pos, pos + flat)
+		physics:reset()
+	end
+
 	local conn
 	conn = RunService.Stepped:Connect(function(_, dt)
 		if not bike:IsDescendantOf(workspace) then
@@ -1958,6 +1978,12 @@ local function runBike(bike: Model)
 			})
 			if out.crashed and not crashSent and char then
 				crashOff(char)
+			end
+			local lying = chassis.CFrame.UpVector.Y < 0.35 and chassis.AssemblyLinearVelocity.Magnitude < 6
+			downTime = if lying and not out.crashed then downTime + dt else 0
+			if downTime > 1.5 then
+				downTime = 0
+				standUp()
 			end
 		end
 

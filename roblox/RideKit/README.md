@@ -45,17 +45,22 @@ Both need two invisible `Wheel` parts, a `TripleTreeHinge` and a
 brake light (`Lights > brk`), RideKit uses them: the motor pitch rises with
 speed and the brake light turns on when you brake.
 
-## Easiest set-up: copy and paste two scripts
+## Easiest set-up: one script, pasted in two places
 
-1. Delete any broken scripts you made earlier, for example one starting
-   with `<roblox`.
+`roblox/RideKit.lua` is a single script that goes in **both** places. It works
+out where it's running and does the bike's part or the player's part.
+
+1. Delete any RideKit scripts you made earlier (the old `RideKit_Server` and
+   `RideKit_Client` code, or anything starting with `<roblox`).
 2. In the Explorer, hover over the bike **Model** (the one with the two
    `Wheel` parts), click **+** and add a **Script** (a normal Script). Delete
-   the `print("Hello world!")` line and paste **all** of
-   `roblox/RideKit_Server.lua`.
+   the `print("Hello world!")` line and paste **all** of `roblox/RideKit.lua`.
 3. Open **StarterPlayer > StarterPlayerScripts**, click **+** and add a
-   **LocalScript**. Paste **all** of `roblox/RideKit_Client.lua`.
+   **LocalScript**. Paste **all** of the same `roblox/RideKit.lua` into it.
 4. Press **Play**, walk to the bike and press **E**.
+
+If the Script ends up somewhere other than inside the bike, the Output says
+where it is and where it should go.
 
 Use either this or the `RideKit.rbxmx` method below, not both.
 

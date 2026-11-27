@@ -6,8 +6,8 @@ Build the RideKit packages from roblox/RideKit/*.lua and the Blender animation.
 Writes:
   roblox/RideKit/AnimData.lua   R6 riding clips exported from blender/anim/ride_anims.blend
                                 (roblox/anim/ride_anims.json), as a ModuleScript
-  roblox/RideKit_Server.lua     paste into a Script inside the bike model
-  roblox/RideKit_Client.lua     paste into a LocalScript in StarterPlayerScripts
+  roblox/RideKit.lua            paste the SAME file into a Script inside the bike model
+                                and into a LocalScript in StarterPlayerScripts
   roblox/RideKit.rbxmx          the same as a Folder for Insert from File:
                                   Config, Rig, Physics, AnimPlayer, AnimData -> ModuleScripts
                                   BikeServer -> Script (RunContext Server)
@@ -136,28 +136,53 @@ def body_of(fn):
     return b[:b.index("-- @end")] if "-- @end" in b else b
 
 
-def single_files():
-    """Copy-paste versions: one Script for the bike, one LocalScript for StarterPlayerScripts."""
+def indent(text):
+    return "\n".join(("\t" + l) if l.strip() else l for l in text.rstrip("\n").split("\n")) + "\n"
+
+
+def single_file():
+    """The copy-paste version: ONE file that goes in both places (the same text in a Script
+    inside the bike model and in a LocalScript in StarterPlayerScripts). It checks where it
+    is running and does the bike's (server) job or the player's (client) job, so the two
+    can't be mixed up - which happened with separate server / client files."""
     # NOTE: paste-in files must survive a copy that loses the start of the file:
     # they open with a long line of dashes (any tail of it is still a comment),
     # never with prose, and every service is looked up where it is used.
     guard = "-" * 160 + "\n\n"
-    server = (
+    text = (
         guard
         + inline("Config", "Config.lua") + inline("Rig", "Rig.lua") + inline("Physics", "Physics.lua")
-        + "\nlocal bike = script.Parent :: Model\n\n" + body_of("BikeServer.server.lua"))
-    client = (
-        guard
-        + inline("Config", "Config.lua") + inline("Physics", "Physics.lua")
         + inline("AnimPlayer", "AnimPlayer.lua") + inline("AnimData", "AnimData.lua")
-        + "\n" + body_of("BikeClient.client.lua")
-        + "\nlocal CollectionService = game:GetService(\"CollectionService\")\n"
-        + "for _, b in ipairs(CollectionService:GetTagged(\"RideKitBike\")) do\n\ttask.spawn(runBike, b)\nend\n"
-        "CollectionService:GetInstanceAddedSignal(\"RideKitBike\"):Connect(function(b)\n\ttask.spawn(runBike, b)\nend)\n")
-    for name, text in (("RideKit_Server.lua", server), ("RideKit_Client.lua", client)):
-        with open(os.path.join(HERE, name), "w", encoding="utf-8") as f:
-            f.write(text)
-        print("wrote", os.path.join(HERE, name))
+        + "\n-- The same script goes in two places: a Script inside the bike model (the bike's\n"
+        "-- part) and a LocalScript in StarterPlayerScripts (each player's part).\n"
+        "if game:GetService(\"RunService\"):IsServer() then\n"
+        "\tlocal bike = script.Parent :: Model\n"
+        "\tlocal wheels = 0\n"
+        "\tfor _, d in ipairs(bike:GetDescendants()) do\n"
+        "\t\tif d:IsA(\"BasePart\") and d.Name == Config.WheelPartName then\n"
+        "\t\t\twheels += 1\n"
+        "\t\tend\n"
+        "\tend\n"
+        "\tif not bike:IsA(\"Model\") or wheels ~= 2 then\n"
+        "\t\twarn(\"RideKit: as a Script this goes inside the bike model, next to its two 'Wheel' parts \"\n"
+        "\t\t\t.. \"(it is in \" .. bike:GetFullName() .. \", which has \" .. wheels .. \"). In StarterPlayerScripts \"\n"
+        "\t\t\t.. \"it must be a LocalScript.\")\n"
+        "\telse\n"
+        + indent(indent(body_of("BikeServer.server.lua")))
+        + "\tend\n"
+        "else\n"
+        + indent(body_of("BikeClient.client.lua"))
+        + "\tlocal CollectionService = game:GetService(\"CollectionService\")\n"
+        "\tfor _, b in ipairs(CollectionService:GetTagged(\"RideKitBike\")) do\n\t\ttask.spawn(runBike, b)\n\tend\n"
+        "\tCollectionService:GetInstanceAddedSignal(\"RideKitBike\"):Connect(function(b)\n\t\ttask.spawn(runBike, b)\n\tend)\n"
+        "end\n")
+    path = os.path.join(HERE, "RideKit.lua")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    print("wrote", path)
+    for old in ("RideKit_Server.lua", "RideKit_Client.lua"):  # replaced by RideKit.lua
+        if os.path.exists(os.path.join(HERE, old)):
+            os.remove(os.path.join(HERE, old))
 
 
 def bike_ref_luau():
@@ -184,7 +209,7 @@ def main():
     with open(os.path.join(HERE, "RideAnims_R6.rbxmx"), "w", encoding="utf-8") as f:
         f.write(keyframe_sequences(data))
     bike_ref_luau()
-    single_files()
+    single_file()
     parts = []
     for i, (cls, name, fn, rc) in enumerate(ITEMS, start=1):
         with open(os.path.join(SRC, fn), encoding="utf-8") as f:

@@ -2,10 +2,14 @@
 
 ## Roblox scripts the user pastes into Studio
 
-- Paste-in scripts (`roblox/RideKit_Server.lua`, `roblox/RideKit_Client.lua`)
-  must survive a copy that loses the start of the file. That has happened
-  twice: it lost the first line and part of the second, and the user then
-  deleted the broken top lines.
+- The paste-in script is ONE file, `roblox/RideKit.lua`. It goes in a Script
+  inside the bike model and in a LocalScript in StarterPlayerScripts, and it
+  checks `RunService:IsServer()` to pick its job. It replaced the separate
+  server and client files after the user put the server code in the
+  LocalScript, so the bike fell over and wouldn't move.
+- The paste-in script must survive a copy that loses the start of the file.
+  That has happened twice: it lost the first line and part of the second, and
+  the user then deleted the broken top lines.
   - Never start with prose comment lines. Put setup instructions in the chat
     message or a README.
   - The files open with a line of 160 dashes, so any tail of it is still a
