@@ -47,9 +47,16 @@ local function measure(pose, steer)
 	local handL = b["Left Arm"] * Vector3.new(0, -1, 0)
 	local footR = b["Right Leg"] * Vector3.new(0, -1, 0)
 	local footL = b["Left Leg"] * Vector3.new(0, -1, 0)
+	-- legs: straight down from the hips, a little forward (the user's reference photo);
+	-- angle forward of straight down, in the bike's frame
+	local function legAngle(leg)
+		local d = -leg.UpVector -- the leg hangs along its -Y
+		return math.deg(math.atan2(d:Dot(chassis.LookVector), -d:Dot(chassis.UpVector)))
+	end
 	return math.max((handR - gR).Magnitude, (handL - gL).Magnitude),
-		math.max((footR - v(BikeRef.pegR)).Magnitude, (footL - v(BikeRef.pegL)).Magnitude),
-		b.Head.LookVector:Dot(chassis.LookVector)
+		math.max(math.abs(legAngle(b["Right Leg"]) - 14), math.abs(legAngle(b["Left Leg"]) - 14)),
+		b.Head.LookVector:Dot(chassis.LookVector),
+		legAngle(b["Right Leg"])
 end
 
 local clips = AnimPlayer.prepare(AnimData)
@@ -59,14 +66,14 @@ for _, name in ipairs({ "Ride", "Brake", "LeanRight", "LeanLeft", "Wheelie" }) d
 	if not clip then
 		continue
 	end
-	local worstH, worstF, minLook = 0, 0, 1
+	local worstH, worstF, minLook, legA = 0, 0, 1, 0
 	for t = 0, clip.length, 0.05 do
-		local h, f, look = measure(AnimPlayer.sample(clip, t), clip.steer)
-		worstH, worstF, minLook = math.max(worstH, h), math.max(worstF, f), math.min(minLook, look)
+		local h, f, look, a = measure(AnimPlayer.sample(clip, t), clip.steer)
+		worstH, worstF, minLook, legA = math.max(worstH, h), math.max(worstF, f), math.min(minLook, look), a
 	end
-	print(string.format("%-9s hands->grips worst %.3f  feet->steps worst %.3f  head·forward min %+.2f", name, worstH, worstF, minLook))
+	print(string.format("%-9s hands->grips worst %.3f  legs %.0f deg forward of straight down (worst off 14: %.1f)  head·forward min %+.2f", name, worstH, legA, worstF, minLook))
 	check(worstH < 0.12, name .. ": hands on the grips")
-	check(worstF < 0.5, name .. ": feet at the steps")
+	check(worstF < 5, name .. ": legs straight down, a little forward")
 	check(minLook > (if name == "Wheelie" then 0.4 else 0.6), name .. ": looking forward")
 end
 -- blends the client makes while riding straight (bars straight)

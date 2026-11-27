@@ -12,8 +12,8 @@ Builds (in blender/anim/ride_anims.blend):
   * Damped Track constraints: arms -> grips, legs -> steps, head -> look-at
   * keyframed torso / look-at / steering for each clip on one timeline:
       Ride (loop) | Brake | LeanRight | LeanLeft | Wheelie
-    The rider sits upright on the seat (the pose the user asked for), feet on the pegs,
-    hands on the grips. In a wheelie they slide back on the seat, arms straight, body
+    The rider sits upright on the seat (the pose the user asked for), legs straight down
+    and a little forward, hands on the grips. In a wheelie they slide back on the seat, arms straight, body
     upright to the road and eyes level.
 The constrained pose is sampled ("visual keying") and written to
 roblox/anim/ride_anims.json as Roblox joint rotations, which RideKit plays and
@@ -263,13 +263,18 @@ def aim_points(steer_angle, q_torso, t=None):
     rot = spv @ Matrix.Rotation(-steer_angle, 4, "Y") @ spv.inverted()
     gR = (rot @ Vector(REF["gripR"]).to_4d()).to_3d()
     gL = (rot @ Vector(REF["gripL"]).to_4d()).to_3d()
+    # legs: straight down from the hips, a little forward (the user's reference photo)
+    down = -UP * math.cos(LEG_ANGLE) + FWD * math.sin(LEG_ANGLE)
+    hR = (torso @ R6["Right Leg"][1]).translation
+    hL = (torso @ R6["Left Leg"][1]).translation
     return {"Right Arm": gR - rt * 0.5, "Left Arm": gL + rt * 0.5,
-            "Right Leg": Vector(REF["pegR"]) + rt * 0.5, "Left Leg": Vector(REF["pegL"]) - rt * 0.5,
+            "Right Leg": hR + down * 2.0, "Left Leg": hL + down * 2.0,
             "gripR": gR, "gripL": gL}
 
 
 HAND_REACH = math.hypot(0.5, 1.5)  # shoulder joint -> hand centre on an R6 arm
 LEG_REACH = math.hypot(0.5, 2.0)  # hip joint -> foot centre on an R6 leg
+LEG_ANGLE = math.radians(14)  # legs hang straight down from the hips, tilted this far forward
 
 
 def best_lean(lean0, steer_angle, roll=0.0, twist0=0.0, lean_range=(-0.6, 1.0), w_lean=0.15):

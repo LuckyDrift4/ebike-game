@@ -25,8 +25,8 @@ the static, anchored bike into a rideable one:
 - **Moving parts:** the wheels spin (and lock or spin up), the bars turn, the
   front fork slides and the swingarm moves with the suspension.
 - **Rider animation:** made in Blender (`blender/anim/ride_anims.blend`).
-  The rider sits upright on the seat with feet on the pegs and hands on the
-  grips. The keyframed R6 clips are: riding, braced on the brakes, bars turned
+  The rider sits upright on the seat, with legs straight down and a little
+  forward and hands on the grips. The keyframed R6 clips are: riding, braced on the brakes, bars turned
   left and right (the head looks into the turn), and the wheelie (slid back,
   arms straight). RideKit plays the
   Blender keyframes and blends them by what the bike is doing. Every client

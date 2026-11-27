@@ -75,7 +75,11 @@
   blends them. The blend weights come from the physics state. Don't bring back
   the old procedural `Pose` module.
 - The rider always sits upright (`Pose.TorsoLean = 0`), like the user's
-  reference photo: on the seat, legs straight to the pegs, hands on the grips.
+  reference photo: on the seat, hands on the grips.
+- The legs hang straight down from the hips, tilted 14° forward
+  (`LEG_ANGLE` in `make_ride_anims.py`), not aimed at the pegs. The user
+  circled the legs in their photo and said "only fix the leg, all other is
+  perfect". `anim_test` checks this angle.
   There's no tuck, no standing and no hanging into corners. The clips are:
   - Ride.
   - Brake (also used in stoppies).

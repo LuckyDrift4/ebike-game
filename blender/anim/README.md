@@ -2,7 +2,8 @@
 
 `make_ride_anims.py` builds `ride_anims.blend`. That file holds an R6 rider rig
 on the surron2 bike and five keyframed clips on one timeline. The rider sits
-upright on the seat, feet on the pegs and hands on the grips. In a wheelie they
+upright on the seat, legs straight down and a little forward, hands on the
+grips. In a wheelie they
 slide back on the seat with their arms straight.
 
 | Clip | Frames | Used when |
@@ -20,8 +21,8 @@ How the rig is set up:
   is exported by `roblox/tests/rig_test.luau`.
 - **Hands, feet and head:** Damped Track constraints aim the arms at the
   `Aim Right Arm` / `Aim Left Arm` empties next to the grips, and the grips turn
-  with the `SteerPivot` empty. The legs aim at the steps and the head looks at
-  the `LookAt` empty.
+  with the `SteerPivot` empty. The legs aim straight down, 14 degrees forward,
+  and the head looks at the `LookAt` empty.
 - **Torso:** it is keyframed by hand. The keys were chosen so the hands land on
   the grips, within 0.07 studs, checked in `roblox/tests/anim_test.luau`.
 - **Torso position:** a torso key can also have a location (the RootJoint
