@@ -58,6 +58,14 @@
 - `physics_test.luau` runs the real module in `sim.luau`, a rigid-body world
   with terrain, kerbs and walls. Every tuning change must keep all of its
   checks passing at 30, 60 and 144 fps.
+- The user wants it grippy and smooth.
+  - Knobbly-tyre surface grip, with only ice really slippery.
+  - Brakes and motor use at most 80% of the grip, like ABS and traction
+    control.
+  - Trail braking when leaned.
+  - Wheelies ease up to `WheelieAngle` and hold.
+  - Stoppies on S ease up and down and roll on the front wheel.
+  - The suite's "smooth and grippy" checks guard all of this.
 
 ## Rider animation
 
@@ -68,9 +76,13 @@
   the old procedural `Pose` module.
 - The rider always sits upright (`Pose.TorsoLean = 0`), like the user's
   reference photo: on the seat, legs straight to the pegs, hands on the grips.
-  There's no tuck, no standing, no hanging into corners and no separate
-  wheelie pose. The clips are Ride, Brake and LeanRight/LeanLeft (bars turned,
-  head into the turn).
+  There's no tuck, no standing and no hanging into corners. The clips are:
+  - Ride.
+  - Brake (also used in stoppies).
+  - LeanRight / LeanLeft: bars turned, head into the turn.
+  - Wheelie: slid back on the seat, arms straight, body upright to the road,
+    eyes level. The user asked for this after seeing the bike tilt back with an
+    upright rider.
 - Clips can still move the torso: an optional `pos` on a key is the RootJoint
   `Transform` position.
 - No on-screen UI. The user asked for all of it to be removed. Keep the mobile

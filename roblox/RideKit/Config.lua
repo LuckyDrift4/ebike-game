@@ -17,13 +17,13 @@ local Config = {
 	RollingDrag = 1.5,
 
 	-- brakes (S brakes both wheels; how hard, before the tyres give up)
-	FrontBrake = 95,
-	RearBrake = 55,
+	FrontBrake = 85,
+	RearBrake = 45,
 
 	-- tyres
-	Grip = 1.2, -- times the surface grip: asphalt 1.05, concrete 1, grass 0.7, dirt 0.65, sand 0.5, mud 0.4, ice 0.15
-	SlideGrip = 0.8, -- grip left once a tyre slides (lower = longer drifts)
-	LateralStiffness = 0.9, -- how firmly a gripping tyre stops sideways sliding (0..1)
+	Grip = 1.3, -- times the surface grip: road / dirt 1, grass 0.95, sand / mud 0.85, snow 0.8, ice 0.35
+	SlideGrip = 0.92, -- grip left once a tyre slides (lower = longer drifts)
+	LateralStiffness = 1.0, -- how firmly a gripping tyre stops sideways sliding (0..1)
 	TyreProfile = 0.35, -- radius of the tyre's round cross-section (a leaned bike rolls on its shoulder)
 
 	-- steering and lean (the rider holds the lean that balances the turn)
@@ -50,9 +50,10 @@ local Config = {
 	-- moving. Throttle raises the front, off lowers it, S is the rear brake. Too high and you loop.
 	WheelieKeys = { Enum.KeyCode.E, Enum.KeyCode.ButtonX },
 	WheelieMinSpeed = 5,
+	WheelieAngle = 38, -- how high it goes while you hold E + throttle (degrees; kept under the balance point)
 	WheelieAssist = false, -- true: covers the rear brake so you never go past the balance point
 	WheelieSweetSpot = 4, -- degrees below the balance point the assist holds you at
-	WheelieAimUp = 0.8, -- how fast the front rises with the throttle on (rad/s)
+	WheelieAimUp = 0.9, -- how fast the front rises with the throttle on (rad/s)
 	WheelieAimDown = 0.55, -- how fast it comes down with the throttle off
 	WheelieLift = 2.6, -- how hard the motor lifts the front
 	RiderShift = 0.45, -- how far the rider moves their weight back or forward (studs)
@@ -66,8 +67,9 @@ local Config = {
 	StoppieMinSpeed = 18, -- slower than this, braking is just braking
 	StoppieFullSpeed = 60,
 	StoppieAngle = 30, -- biggest stoppie (degrees)
-	StoppieAimUp = 1.8, -- how fast the rear rises while braking (rad/s)
-	StoppieAimDown = 1.4, -- how fast it comes down when you let go
+	StoppieAimUp = 1.4, -- how fast the rear rises while braking (rad/s)
+	StoppieAimDown = 1.4, -- how fast it comes down (when you let go, or as it slows to a stop)
+	StoppieDecel = 55, -- hardest braking while the rear is up (studs/s²): it rolls on the front
 	StoppieLift = 2.0, -- the rider's shove that gets the rear up
 
 	-- in the air: E tips the nose up, the throttle spins the rear wheel up (nose up) and the

@@ -53,7 +53,7 @@ local function measure(pose, steer)
 end
 
 local clips = AnimPlayer.prepare(AnimData)
-for _, name in ipairs({ "Ride", "Brake", "LeanRight", "LeanLeft" }) do
+for _, name in ipairs({ "Ride", "Brake", "LeanRight", "LeanLeft", "Wheelie" }) do
 	local clip = clips[name]
 	check(clip ~= nil, name .. ": clip exported")
 	if not clip then
@@ -67,12 +67,14 @@ for _, name in ipairs({ "Ride", "Brake", "LeanRight", "LeanLeft" }) do
 	print(string.format("%-9s hands->grips worst %.3f  feet->steps worst %.3f  head·forward min %+.2f", name, worstH, worstF, minLook))
 	check(worstH < 0.12, name .. ": hands on the grips")
 	check(worstF < 0.5, name .. ": feet at the steps")
-	check(minLook > 0.6, name .. ": looking forward")
+	check(minLook > (if name == "Wheelie" then 0.4 else 0.6), name .. ": looking forward")
 end
 -- blends the client makes while riding straight (bars straight)
 for _, w in ipairs({
 	{ brake = 0.5 },
 	{ brake = 1 },
+	{ wheelie = 0.5 },
+	{ wheelie = 1, brake = 0.3 },
 }) do
 	local h = measure(AnimPlayer.pose(clips, 0.7, w), 0)
 	check(h < 0.15, "blend keeps the hands on the grips")

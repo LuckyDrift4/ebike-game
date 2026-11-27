@@ -267,12 +267,20 @@ local function runBike(bike: Model)
 		if riderJoints and char then
 			AnimPlayer.silence(char)
 			animTime += dt
-			-- always seated, upright: brace on the brakes (and in a stoppie), arms follow the bars
+			-- seated, upright: brace on the brakes (and in a stoppie), arms follow the bars, and
+			-- sit back with the arms straight as the front comes up in a wheelie
 			local stoppie = if out then out.stoppie else (hitF and not hitR and cf.LookVector.Y < -0.05)
+			local wheelieUp = 0
+			if out then
+				wheelieUp = if out.wheelie then out.wheelieAngle else 0
+			elseif hitR and not hitF then
+				wheelieUp = math.asin(math.clamp(cf.LookVector.Y, -1, 1))
+			end
 			local target = {
 				brake = if braking or stoppie then math.max(brake, if stoppie then 1 else 0) else 0,
 				leanR = math.clamp(steerVis / clipSteer, 0, 1),
 				leanL = math.clamp(-steerVis / clipSteer, 0, 1),
+				wheelie = math.clamp((wheelieUp - 0.05) / (math.rad(Config.WheelieAngle) - 0.05), 0, 1),
 			}
 			local a = 1 - math.exp(-Config.AnimBlendSpeed * dt)
 			for k, v in pairs(target) do

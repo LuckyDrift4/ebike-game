@@ -11,9 +11,10 @@ Builds (in blender/anim/ride_anims.blend):
     the foot steps, and a look-at target
   * Damped Track constraints: arms -> grips, legs -> steps, head -> look-at
   * keyframed torso / look-at / steering for each clip on one timeline:
-      Ride (loop) | Brake | LeanRight | LeanLeft
-    The rider always sits upright on the seat (the pose the user asked for), feet on the
-    pegs, hands on the grips; the bike's own lean / wheelie / stoppie does the rest.
+      Ride (loop) | Brake | LeanRight | LeanLeft | Wheelie
+    The rider sits upright on the seat (the pose the user asked for), feet on the pegs,
+    hands on the grips. In a wheelie they slide back on the seat, arms straight, body
+    upright to the road and eyes level.
 The constrained pose is sampled ("visual keying") and written to
 roblox/anim/ride_anims.json as Roblox joint rotations, which RideKit plays and
 build_ridekit.py turns into Animation Editor KeyframeSequences.
@@ -292,6 +293,30 @@ def best_lean(lean0, steer_angle, roll=0.0, twist0=0.0, lean_range=(-0.6, 1.0), 
     return best[1], best[2]
 
 
+def best_seated(lean0, slide_range=(-0.9, 0.2), lean_span=0.5, w_lean=0.4, steer_angle=0.0):
+    """Sitting, but free to slide along the seat (RootJoint position, hips stay on the seat):
+    the lean nearest lean0 and the slide where both hands land exactly on the grips,
+    with the feet as near the pegs as straight R6 legs allow."""
+    best = None
+    for i in range(int(2 * lean_span / 0.02) + 1):
+        lean = lean0 - lean_span + i * 0.02
+        q = torso_rotation(lean)
+        for j in range(int((slide_range[1] - slide_range[0]) / 0.025) + 1):
+            f = slide_range[0] + j * 0.025
+            t = stand_offset(f, 0.0)
+            sp = shoulder_points(q, t)
+            g = aim_points(steer_angle, q, t)
+            eR = (g["gripR"] - sp["Right Arm"]).length - HAND_REACH
+            eL = (g["gripL"] - sp["Left Arm"]).length - HAND_REACH
+            lR = (Vector(REF["pegR"]) - sp["Right Leg"]).length - LEG_REACH
+            lL = (Vector(REF["pegL"]) - sp["Left Leg"]).length - LEG_REACH
+            leg = sum((e * e if e > 0 else 0.3 * e * e) for e in (lR, lL))  # dangling short is worse
+            cost = 6 * (eR * eR + eL * eL) + 0.5 * leg + w_lean * (lean - lean0) ** 2 + 0.05 * f * f
+            if best is None or cost < best[0]:
+                best = (cost, lean, f)
+    return best[1], best[2]
+
+
 # --- clips ----------------------------------------------------------------------------
 STEER_ANIM = 0.24  # bars turned this much (rad) in the lean clips (matches RideKit MaxSteerAngle)
 CLIPS = [
@@ -300,7 +325,9 @@ CLIPS = [
     ("Brake", 81, 30, True),
     ("LeanRight", 131, 30, True),
     ("LeanLeft", 181, 30, True),
+    ("Wheelie", 231, 30, True),
 ]
+WHEELIE_PITCH = math.radians(38)  # how far the bike is pitched up in a held wheelie (Config.WheelieAngle)
 UPRIGHT = 0.0  # torso lean while sitting (0 = straight up); RideKit's Config.Pose.TorsoLean
 
 
@@ -373,6 +400,18 @@ def animate(arm, steer, look, targets):
             pose_at(s + f, lean, 0, tw, sign * STEER_ANIM)
             key_obj(look, s + f, loc=look_at(ahead=9.0, side=sign * 5.0, height=0.3))
 
+    # Wheelie: slid back on the seat, arms pulled straight, the body leaning forward on the bike
+    # so it stays fairly upright to the road, eyes level down the road
+    lean, slide = best_seated(0.45)
+    report["Wheelie"] = (lean, slide)
+    s = CLIPS[4][1]
+    level = -12.0 * math.tan(WHEELIE_PITCH)  # look target that's level with the road when pitched up
+    for f, dl in ((0, 0.0), (15, 0.02), (30, 0.0)):
+        l2, f2 = best_seated(lean + dl, slide_range=(slide - 0.2, slide + 0.2), lean_span=0.1, w_lean=2.0)
+        pose_at(s + f, l2, 0, 0.0, 0.0, stand_offset(f2, 0.0))
+        key_obj(look, s + f, loc=look_at(ahead=12.0, height=level))
+    KEY_FRAMES["Wheelie"] = (0, 15, 30)
+
     for ob in [arm, steer, look] + list(targets.values()):
         ad = ob.animation_data
         if ad and ad.action:
@@ -429,7 +468,7 @@ def sample_visual(arm, frame):
 def export(arm):
     clips = {}
     for name, start, length, loop in CLIPS:
-        step = 3 if name == "Ride" else length
+        step = 3 if name == "Ride" else (15 if name == "Wheelie" else length)
         keys = []
         for f in range(0, length + 1, step):
             pose, pos = sample_visual(arm, start + f)
@@ -573,7 +612,7 @@ def preview(arm, steer, look, objs):
 
     for name, start, length, loop in CLIPS:
         roll = {"LeanRight": -0.25, "LeanLeft": 0.25}.get(name, 0.0)
-        pitch = 0.0
+        pitch = WHEELIE_PITCH if name == "Wheelie" else 0.0
         pose_root(start, roll, pitch)
         pose_root(start + length, roll, pitch)
     # ground + light + camera

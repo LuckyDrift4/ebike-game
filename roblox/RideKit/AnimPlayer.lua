@@ -77,6 +77,7 @@ AnimPlayer.LAYERS = {
 	{ "Brake", "brake" }, -- braced on the bars when braking
 	{ "LeanRight", "leanR" }, -- bars turned (hands follow the grips, head looks into the turn)
 	{ "LeanLeft", "leanL" },
+	{ "Wheelie", "wheelie" }, -- slid back, arms straight, eyes level as the front comes up
 }
 
 --[[ Full riding pose.

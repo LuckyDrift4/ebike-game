@@ -25,48 +25,48 @@
 local Physics = {}
 Physics.__index = Physics
 
--- tyre grip by surface (Enum.Material names); anything else 0.9
+-- tyre grip by surface (Enum.Material names; knobbly dirt-bike tyres); anything else 0.95
 local SURFACE_GRIP = {
-	Asphalt = 1.05,
+	Asphalt = 1.0,
 	Concrete = 1.0,
 	Pavement = 1.0,
 	Brick = 0.95,
-	Cobblestone = 0.85,
+	Cobblestone = 0.9,
 	Slate = 0.95,
-	Rock = 0.9,
+	Rock = 0.95,
 	Basalt = 0.95,
-	Limestone = 0.9,
-	Sandstone = 0.85,
+	Limestone = 0.95,
+	Sandstone = 0.95,
 	Granite = 0.95,
-	Marble = 0.75,
-	Wood = 0.85,
-	WoodPlanks = 0.85,
-	Plastic = 0.85,
-	SmoothPlastic = 0.8,
-	Fabric = 0.85,
-	Metal = 0.75,
-	DiamondPlate = 0.85,
-	CorrodedMetal = 0.8,
-	Foil = 0.6,
-	Glass = 0.5,
-	Grass = 0.7,
-	LeafyGrass = 0.65,
-	Ground = 0.65,
-	Mud = 0.4,
-	Sand = 0.5,
-	Salt = 0.6,
-	Snow = 0.35,
-	Ice = 0.15,
-	Glacier = 0.2,
-	CrackedLava = 0.85,
-	Pebble = 0.6,
+	Marble = 0.85,
+	Wood = 0.95,
+	WoodPlanks = 0.95,
+	Plastic = 0.95,
+	SmoothPlastic = 0.9,
+	Fabric = 0.95,
+	Metal = 0.85,
+	DiamondPlate = 0.95,
+	CorrodedMetal = 0.9,
+	Foil = 0.8,
+	Glass = 0.75,
+	Grass = 0.95,
+	LeafyGrass = 0.95,
+	Ground = 1.0,
+	Mud = 0.85,
+	Sand = 0.85,
+	Salt = 0.85,
+	Snow = 0.8,
+	Ice = 0.35,
+	Glacier = 0.4,
+	CrackedLava = 0.95,
+	Pebble = 0.9,
 	Rubber = 1.1,
-	Carpet = 0.9,
-	Cardboard = 0.7,
-	Plaster = 0.85,
-	Leather = 0.8,
-	ClayRoofTiles = 0.85,
-	RoofShingles = 0.85,
+	Carpet = 1.0,
+	Cardboard = 0.9,
+	Plaster = 0.95,
+	Leather = 0.95,
+	ClayRoofTiles = 0.95,
+	RoofShingles = 0.95,
 }
 
 -- rays fanned around each wheel's rim (0 = straight down the suspension)
@@ -111,6 +111,7 @@ function Physics:reset()
 	self.stoppieOn = false
 	self.aimS = 0
 	self.stoppieMax = 0
+	self.brakeTime = 0
 	self.sliding = { false, false }
 	self.lastHs = nil
 	self.impact = 0
@@ -274,7 +275,7 @@ end
 
 local function gripOf(hit, cfg): number
 	local name = if hit.Material then hit.Material.Name else ""
-	return (SURFACE_GRIP[name] or 0.9) * cfg.Grip
+	return (SURFACE_GRIP[name] or 0.95) * cfg.Grip
 end
 
 function Physics:crash(reason: string)
@@ -442,12 +443,14 @@ function Physics:step(dt: number, input)
 		end
 		if self.wheelieOn then
 			-- E + throttle raises the angle the rider is going for, letting off lowers it
-			local cap = if cfg.WheelieAssist then thetaB - math.rad(cfg.WheelieSweetSpot) else thetaB + 0.6
-			local rate = if back > 0 and throttle > 0.5 and speed > 2 then cfg.WheelieAimUp else -cfg.WheelieAimDown
-			if back == 0 then
-				rate = -cfg.WheelieAimDown * 1.5
-			end
-			self.aim = clamp(self.aim + rate * h, 0, math.max(cap, 0))
+			-- holding E + throttle eases it up to WheelieAngle (kept under the balance point) and
+			-- holds it there; letting off either lowers it. Without the assist a big disturbance
+			-- (a bump, a landing) can still take it over.
+			local top = math.max(math.min(math.rad(cfg.WheelieAngle), thetaB - math.rad(cfg.WheelieSweetSpot)), 0)
+			local rising = back > 0 and throttle > 0.5 and speed > 2
+			local goal = if rising then top else 0
+			local step = clamp((goal - self.aim) * 4, -cfg.WheelieAimDown * (if back > 0 then 1 else 1.5), cfg.WheelieAimUp)
+			self.aim = clamp(self.aim + step * h, 0, top)
 			-- torque the rider needs about the rear tyre (pitch speed limited near the target)
 			local wn = cfg.WheelieControl
 			self.aimI = clamp(self.aimI + (self.aim - theta) * h, -0.3, 0.3) -- and remove any steady error
@@ -486,6 +489,7 @@ function Physics:step(dt: number, input)
 	-- stoppie: brake at speed (or Q + brake) and the bike pivots on the front tyre; the
 	-- faster it was going when the braking started, the higher the rear goes
 	local asking = brake > 0.3 and (forward > 0 or cfg.StoppieOnBrake)
+	self.brakeTime = if brake > 0.3 then self.brakeTime + h else 0
 	if control and frontDown and (asking or self.stoppieOn) and not self.wheelieOn then
 		local gn = con[1].gn
 		thetaS = -math.asin(clamp(fwd:Dot(gn), -1, 1)) -- rear up from the ground under the front tyre
@@ -493,7 +497,9 @@ function Physics:step(dt: number, input)
 		local toBalF = math.pi / 2 - math.atan2(r:Dot(Y), -r:Dot(levelFwd))
 		local Ic = Ip + m * r:Dot(levelFwd) ^ 2
 		local flat = gn.Y > 0.97 and fwd.Y > -0.25 -- not down a steep hill (it would go over the bars)
-		if not self.stoppieOn and asking and speed > cfg.StoppieMinSpeed and math.abs(lean) < 0.3 and flat then
+		-- only when the brake goes on hard while going straight and upright (never mid-corner)
+		local straight = math.abs(lean) < 0.15 and math.abs(self.steerAngle) < 0.06 and self.brakeTime < 0.3
+		if not self.stoppieOn and asking and speed > cfg.StoppieMinSpeed and straight and flat then
 			self.stoppieOn = true
 			self.aimS = math.max(thetaS, 0)
 			local full = math.max(cfg.StoppieFullSpeed - cfg.StoppieMinSpeed, 1)
@@ -501,25 +507,32 @@ function Physics:step(dt: number, input)
 		end
 		if self.stoppieOn then
 			local holding = asking and speed > 2
-			-- as it slows to a stop the rear comes back down
-			local slowing = clamp((speed - 2) / math.max(cfg.StoppieFullSpeed * 0.35, 1), 0, 1)
-			local cap = math.min(self.stoppieMax * math.sqrt(slowing), thetaS + toBalF - math.rad(6))
-			local rate = if holding then cfg.StoppieAimUp else -cfg.StoppieAimDown
-			self.aimS = clamp(self.aimS + rate * h, 0, math.max(cap, 0))
+			-- the rear eases up, rolls on the front, and eases back down as the bike slows
+			local slowing = clamp((speed - 3) / 28, 0, 1)
+			slowing = slowing * slowing * (3 - 2 * slowing)
+			local cap = math.min(self.stoppieMax * slowing, thetaS + toBalF - math.rad(6))
+			local goal = if holding then math.max(cap, 0) else 0
+			local step = clamp((goal - self.aimS) * 5, -cfg.StoppieAimDown, cfg.StoppieAimUp)
+			self.aimS = clamp(self.aimS + step * h, 0, math.max(cap, 0))
 			local wn = cfg.WheelieControl
 			local x = -r:Dot(levelFwd) -- centre of mass behind the front tyre
 			local H = math.max(r:Dot(Y), 0.5) -- and above it
 			local wantRate = clamp(wn * 0.5 * (self.aimS - thetaS), -1.5, 1.5)
 			local thetaRate = -self.w:Cross(fwd):Dot(con[1].gn) / math.max(math.cos(thetaS), 0.2)
 			local need = Ic * (wn * 1.5 * (wantRate - thetaRate)) + m * g * x -- rear-up torque needed
-			-- 1. the front brake lifts the rear (helped by a shove from the rider to get it up)
-			local lift = clamp((0.6 - thetaS / math.max(cap, 0.1)) / 0.4, 0, 1) * m * g * cfg.StoppieLift
-			local per = m * H * cfg.FrontBrake + lift
-			local b = clamp(need / per, 0.3 * brake, math.max(brake, 0.3)) -- always some braking
+			-- 1. the front brake lifts the rear - hard, but not so hard it's over in an instant
+			local perBrake = m * H * cfg.FrontBrake
+			local bMax = math.max(math.min(brake, cfg.StoppieDecel / cfg.FrontBrake), 0.3)
+			local b = clamp(need / perBrake, math.min(0.3 * brake, bMax), bMax)
 			frontBrakeUse = b
-			-- 2. body weight forward / back for the rest
-			local shift = clamp(need - b * per, -m * g * cfg.RiderShift, m * g * cfg.RiderShift)
-			riderTorque = -(shift + b * lift)
+			local rest = need - b * perBrake
+			-- 2. the rider throws their weight over the bars to get the rear up and keep it there
+			local lift = (if holding then 1 else 0.5) * m * g * cfg.StoppieLift
+			local shove = clamp(rest, 0, lift)
+			rest -= shove
+			-- 3. body weight forward / back for the rest
+			local shift = clamp(rest, -m * g * cfg.RiderShift, m * g * cfg.RiderShift)
+			riderTorque = -(shift + shove)
 			if toBalF < -math.rad(cfg.LoopOutAngle) then
 				self:crash("endo")
 			end
@@ -655,8 +668,14 @@ function Physics:step(dt: number, input)
 				k.mu = gripOf(k.hit, cfg) * (if self.sliding[i] then cfg.SlideGrip else 1)
 				local Jt = if i == 2 then drive * m * h else 0
 				local decel = cfg.RollingDrag * share[i]
+				if driver and throttle == 0 and drive == 0 and math.abs(speed) < 4 and not self.wheelieOn and not self.stoppieOn then
+					decel += 60 -- stopped: the rider holds the brakes, it doesn't creep or roll back
+				end
 				if i == 1 then
-					decel += (frontBrakeUse or brake) * cfg.FrontBrake
+					-- leaned over, the rider brakes gently on the front (trail braking) so the rear
+					-- keeps its weight and grip instead of going light and stepping out
+					local trail = if frontBrakeUse then 1 else 1 - 0.45 * clamp((math.abs(lean) - 0.1) / 0.4, 0, 1)
+					decel += (frontBrakeUse or brake) * cfg.FrontBrake * trail
 				else
 					decel += math.max(brake, rearAssist) * cfg.RearBrake + (if throttle == 0 then cfg.CoastDecel else 0)
 				end
@@ -682,7 +701,9 @@ function Physics:step(dt: number, input)
 			if k and k.t then
 				k.limit = k.mu * k.lam / k.cos
 				local wantL = k.Jl - k.ml * self:pointVel(k.P):Dot(k.l) * cfg.LateralStiffness
-				local wantT = k.Jt0
+				-- brakes and motor never use more than 80% of the grip (ABS / traction control):
+				-- the rest keeps the tyre gripping sideways, so it doesn't lock up or slide out
+				local wantT = clamp(k.Jt0, -0.8 * k.limit, 0.8 * k.limit)
 				local mag = math.sqrt(wantT * wantT + wantL * wantL)
 				local sc = if mag > k.limit and mag > 1e-9 then k.limit / mag else 1
 				wantT *= sc
@@ -699,7 +720,7 @@ function Physics:step(dt: number, input)
 		end
 	end
 	for i = 1, 2 do
-		self.sliding[i] = slip[i] > 0.01 -- once it lets go, it slides on with less grip
+		self.sliding[i] = slip[i] > 0.05 -- once it lets go, it slides on with less grip
 		self.load[i] = if con[i] then con[i].lam / con[i].cos / h else 0 -- tyre load (force)
 	end
 

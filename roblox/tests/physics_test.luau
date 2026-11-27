@@ -165,8 +165,8 @@ end
 do
 	local r = corner(45, 60, "Ice")
 	check("ice (crashes off: slides, stays on)", r.slip > 0.2 and not r.crashed and math.abs(deg(r.lean)) < 60, string.format("tyre slip %.2f, lean %.0f, crashed %s (%s)", r.slip, deg(r.lean), tostring(r.crashed), tostring(r.reason)))
-	local rc = with({ Crashes = true }, function() return corner(45, 60, "Ice") end)
-	check("ice (crashes on)", rc.crashed, string.format("tyre slip %.2f, crashed %s (%s)", rc.slip, tostring(rc.crashed), tostring(rc.reason)))
+	local rc = with({ Crashes = true, Grip = 0.4 }, function() return corner(45, 60, "Ice") end)
+	check("lowside (crashes on, very slippery)", rc.crashed, string.format("tyre slip %.2f, crashed %s (%s)", rc.slip, tostring(rc.crashed), tostring(rc.reason)))
 	local s = corner(30, 60, "Sand")
 	check("sand", not s.crashed, string.format("lean %.1f deg, tyre slip %.2f, crashed %s", deg(s.lean), s.slip, tostring(s.crashed)))
 end
@@ -218,12 +218,17 @@ do
 		return { driver = true, throttle = if on and t < 7.5 then 1 else 0, leanBack = if t < 7.5 then 1 else 0 }
 	end, 10)
 	check("wheelie (throttle by eye, no assist)", tap.frac > 0.8 and not tap.crashed, string.format("front up %.0f%%, %.1f deg (balance %.1f), crashed %s", tap.frac * 100, deg(tap.angle), deg(tap.balance), tostring(tap.crashed)))
-	-- hold it pinned with no assist: loops over
-	local loop = wheelie(false, function() return { driver = true, throttle = 1, leanBack = 1 } end, 6)
+	-- held pinned it stops at WheelieAngle and stays there
+	local held = wheelie(false, function() return { driver = true, throttle = 1, leanBack = 1 } end, 6)
+	check("wheelie held pinned stays up", not held.crashed and held.frac > 0.95 and deg(held.maxAngle) < Config.WheelieAngle + 4, string.format("front up %.0f%%, max %.1f deg (WheelieAngle %d), crashed %s", held.frac * 100, deg(held.maxAngle), Config.WheelieAngle, tostring(held.crashed)))
+	-- asked to go past the balance point with no assist: loops over and throws you off
+	local loop = with({ WheelieAngle = 80, WheelieSweetSpot = -40 }, function()
+		return wheelie(false, function() return { driver = true, throttle = 1, leanBack = 1 } end, 6)
+	end)
 	check("loop out (no assist)", loop.crashed and loop.reason == "loop", string.format("crashed %s (%s), max angle %.1f deg", tostring(loop.crashed), tostring(loop.reason), deg(loop.maxAngle)))
-	-- no assist, pinned, but the rear brake saves it when near the balance point
+	-- no assist, going past the balance point, but the rear brake saves it
 	local saved, braked = nil, false
-	saved = wheelie(false, function(t, o)
+	saved = with({ WheelieAngle = 80, WheelieSweetSpot = -40 }, function() return wheelie(false, function(t, o)
 		if o.balanceAngle - o.wheelieAngle < math.rad(2) and not o.contact[1] then
 			braked = true
 		end
@@ -232,7 +237,7 @@ do
 			braked = false
 		end
 		return { driver = true, throttle = if b > 0 then 0 else 1, brake = b, leanBack = if t < 6 then 1 else 0 }
-	end, 8)
+	end, 8) end)
 	check("rear brake saves it", not saved.crashed and saved.frac > 0.7, string.format("front up %.0f%%, crashed %s", saved.frac * 100, tostring(saved.crashed)))
 end
 
@@ -413,7 +418,7 @@ do
 	Sim.run(p2, b2, 60, 3, function(t) return { driver = true, throttle = 1, steer = if t > 0.3 then 1 else 0 } end, function(_, o)
 		rearSlip = math.max(rearSlip, o.slip[2])
 	end)
-	check("power slide on ice", rearSlip > 0.05 and not p2.crashed, string.format("rear slip up to %.2f, crashed %s (%s)", rearSlip, tostring(p2.crashed), tostring(p2.crashReason)))
+	check("traction control: full throttle on ice", rearSlip < 0.15 and not p2.crashed, string.format("rear slip up to %.2f, crashed %s (%s)", rearSlip, tostring(p2.crashed), tostring(p2.crashReason)))
 	-- steer in a wheelie
 	local p3, b3 = new({ velocity = FWD * 22 })
 	local yaw0 = b3.CFrame.LookVector
@@ -451,6 +456,61 @@ do
 	p8:crash("test")
 	Sim.run(p8, b8, 60, 4, function() return { driver = false } end)
 	check("crashed bike falls over", math.abs(deg(p8.out.lean)) > 45, string.format("lean %.0f deg, speed %.1f", deg(p8.out.lean), p8.out.speed))
+end
+
+-- 14. smooth and grippy (what the user asked for) --------------------------------------------------
+do
+	-- wheelie held with E + W at uneven frame times (like a real game): smooth lift, steady hold
+	local phys, body = new({ velocity = FWD * 20 })
+	local t, seed, prev, prev2, wobble, maxA = 0, 1, nil, nil, 0, 0
+	while t < 6 do
+		seed = (seed * 1103515245 + 12345) % 2147483648
+		local dt = 1 / (50 + (seed % 25))
+		t += dt
+		phys:step(dt, { driver = true, throttle = 1, leanBack = 1 })
+		Sim.step(body, dt)
+		local th = deg(math.asin(body.CFrame.LookVector.Y))
+		if prev2 and t > 0.3 then
+			wobble = math.max(wobble, math.abs(th - 2 * prev + prev2))
+		end
+		prev2, prev, maxA = prev, th, math.max(maxA, th)
+	end
+	check("wheelie is smooth", wobble < 1 and not phys.crashed and maxA > 30, string.format("worst frame-to-frame wobble %.2f deg, up to %.0f deg", wobble, maxA))
+	-- stoppie from 60: smooth up and down, rolls on the front for a while
+	local p2, b2 = new({ velocity = FWD * 60 })
+	local tt, up, jerk, pp, pp2, peak = 0, 0, 0, nil, nil, 0
+	while tt < 3 do
+		tt += 1 / 60
+		local o = p2:step(1 / 60, { driver = true, brake = if tt < 1.6 then 1 else 0 })
+		Sim.step(b2, 1 / 60)
+		local th = -deg(math.asin(b2.CFrame.LookVector.Y))
+		if pp2 then
+			jerk = math.max(jerk, math.abs(th - 2 * pp + pp2))
+		end
+		pp2, pp, peak = pp, th, math.max(peak, th)
+		if not o.contact[2] then
+			up += 1 / 60
+		end
+	end
+	check("stoppie is smooth", jerk < 1 and up > 0.7 and peak > 18 and math.abs(p2.out.speed) < 0.5, string.format("rear up %.2f s, peak %.0f deg, worst jerk %.2f deg", up, peak, jerk))
+	-- grip: a fast corner on snow doesn't slide; hard braking doesn't lock the rear
+	local r = corner(40, 60, "Snow")
+	check("snow corner grips", r.slip < 0.05 and not r.crashed, string.format("tyre slip %.2f, lean %.0f deg", r.slip, deg(r.lean)))
+	-- lean into a corner at 35, then brake hard while turned in (and slow, below stoppie speed)
+	local worst = {}
+	for _, v in ipairs({ 35, 15 }) do
+		local p3, b3 = new({ velocity = FWD * v })
+		local slipMax = 0
+		Sim.run(p3, b3, 60, 3, function(t, o)
+			return { driver = true, throttle = if t < 1.2 then cruise(v, o) else 0, brake = if t >= 1.2 and o.speed > 0.5 then 1 else 0, steer = 1 }
+		end, function(t, o)
+			if t > 1.2 then
+				slipMax = math.max(slipMax, o.slip[1], o.slip[2])
+			end
+		end)
+		worst[v] = { slip = slipMax, crashed = p3.crashed }
+	end
+	check("braking in a turn doesn't slide", worst[35].slip < 0.1 and worst[15].slip < 0.1 and not worst[35].crashed, string.format("tyre slip braking from 35: %.2f, from 15: %.2f", worst[35].slip, worst[15].slip))
 end
 
 print(string.format("raycasts per frame: %.1f", Sim.rays / math.max(Sim.frames, 1)))

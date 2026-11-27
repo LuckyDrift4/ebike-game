@@ -1,15 +1,16 @@
 # R6 riding animations (Blender)
 
 `make_ride_anims.py` builds `ride_anims.blend`. That file holds an R6 rider rig
-on the surron2 bike and four keyframed clips on one timeline. The rider always
-sits upright on the seat, feet on the pegs and hands on the grips. The bike's
-own lean, wheelie and stoppie do the rest.
+on the surron2 bike and five keyframed clips on one timeline. The rider sits
+upright on the seat, feet on the pegs and hands on the grips. In a wheelie they
+slide back on the seat with their arms straight.
 
 | Clip | Frames | Used when |
 |---|---|---|
 | Ride | 1–61 (loop) | always, as the base |
 | Brake | 81–111 | braking and stoppies (braced on the bars) |
 | LeanRight / LeanLeft | 131–161 / 181–211 | the bars turn: hands follow the grips, head looks into the turn |
+| Wheelie | 231–261 | front wheel up: slid back on the seat, arms straight, body upright to the road |
 
 How the rig is set up:
 - **Bones:** they match Roblox's R6 joints exactly. Each bone's rest pose is the
@@ -25,7 +26,7 @@ How the rig is set up:
   the grips, within 0.07 studs, checked in `roblox/tests/anim_test.luau`.
 - **Torso position:** a torso key can also have a location (the RootJoint
   `Transform` position). It's exported as `pos` and RideKit plays it. The
-  current clips don't use it.
+  Wheelie clip uses it to slide the hips back along the seat.
 
 To rebuild everything from scratch:
 

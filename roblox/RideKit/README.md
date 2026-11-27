@@ -13,9 +13,10 @@ the static, anchored bike into a rideable one:
   - Round wheels roll up kerbs. Jumps fly on real ballistics, and in the air
     the rider lines the bike up with the landing.
 - **Wheelies and stoppies:** they use a real balance point.
-  - Hold E with the throttle (while moving) and the front comes up. Holding the
-    throttle raises it, letting off lowers it, and the rear brake (S) brings it
-    down. Go past the balance point and you loop it and get thrown off.
+  - Hold E with the throttle (while moving) and the front eases up to about 38
+    degrees (`WheelieAngle`) and holds there. Letting off the throttle or E
+    lowers it, and the rear brake (S) brings it down. A big bump or landing can
+    still take it over, and you loop it and get thrown off.
   - Brake hard (S) at speed and the rear wheel lifts into a stoppie: a little
     at low speed, up to about 30 degrees when you were going fast.
 - **Crashes:** off by default. Looping a wheelie (or landing upside down) still
@@ -25,8 +26,9 @@ the static, anchored bike into a rideable one:
   front fork slides and the swingarm moves with the suspension.
 - **Rider animation:** made in Blender (`blender/anim/ride_anims.blend`).
   The rider sits upright on the seat with feet on the pegs and hands on the
-  grips. The keyframed R6 clips are: riding, braced on the brakes, and bars
-  turned left and right, where the head looks into the turn. RideKit plays the
+  grips. The keyframed R6 clips are: riding, braced on the brakes, bars turned
+  left and right (the head looks into the turn), and the wheelie (slid back,
+  arms straight). RideKit plays the
   Blender keyframes and blends them by what the bike is doing. Every client
   plays them, so nothing needs uploading.
 
@@ -84,10 +86,10 @@ Use either this or the `RideKit.rbxmx` method below, not both.
 | Get off | Space | A | Jump button |
 
 **Wheelies:**
-- Hold E and the throttle. Keep holding the throttle to go higher, or let off
+- Hold E and the throttle: it eases up to about 38 degrees and holds. Let off
   to come down. S (rear brake) drops it fast.
-- There's no on-screen bar: watch the bike. Past the balance point (about 45
-  degrees) it loops.
+- The balance point is about 45 degrees. A big bump or landing near it can
+  loop it.
 - `WheelieAssist = true` makes the rider cover the rear brake so it can never
   loop.
 - A/D lean it round gently.
@@ -108,8 +110,10 @@ change:
 
 - **Motor:** `MaxSpeed`, `Acceleration`.
 - **Brakes:** `FrontBrake`, `RearBrake`.
-- **Grip:** `Grip` multiplies every surface's grip. `SlideGrip` sets how
-  slippery a sliding tyre gets, so it controls the length of drifts.
+- **Grip:** `Grip` multiplies every surface's grip. Knobbly tyres grip on
+  dirt, grass, sand and snow; only ice is really slippery. The brakes and
+  motor never use more than 80% of the grip, so the tyres don't lock up or spin
+  out. `SlideGrip` sets how slippery a sliding tyre gets.
 - **Handling:** `MaxLean`, `MaxSteerAngle`, `SteerSpeed`.
 - **Suspension:** `SuspensionTravel`, `SpringRate`, `Damping`,
   `ReboundDamping`.
@@ -122,7 +126,9 @@ change:
   rear wheel up (nose up) and the brake stops it (nose down). `AirAssist = true`
   makes the rider line up for landings.
 - **Stoppies:** `StoppieOnBrake`, `StoppieMinSpeed`, `StoppieFullSpeed`,
-  `StoppieAngle`.
+  `StoppieAngle`, and `StoppieDecel` (lower makes it roll longer on the front).
+  They only start when you brake hard going straight.
+- **Wheelie height:** `WheelieAngle`.
 - **Crashes:** `Crashes = true` turns on all crashes. `LoopCrash = false`
   stops looping a wheelie from throwing you off. `CrashLean` and `CrashImpact`
   set how hard you have to go before you come off.
@@ -138,7 +144,7 @@ paused for the local rider while riding and turned back on when they get off.
 ## Optional: the clips in the Animation Editor
 
 `RideAnims_R6.rbxmx` holds the same Blender clips as KeyframeSequences, named
-`RideRide`, `RideBrake`, `RideLeanRight` and `RideLeanLeft`.
+`RideRide`, `RideBrake`, `RideLeanRight`, `RideLeanLeft` and `RideWheelie`.
 
 1. Insert the file into your R6 dummy (`Rig`), then move the sequences into a
    folder named `AnimSaves` inside the rig. Create the folder if it isn't there.
