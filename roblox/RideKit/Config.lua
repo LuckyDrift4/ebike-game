@@ -61,6 +61,16 @@ local Config = {
 	WheelieSteer = 0.5, -- steering in a wheelie, times normal (you lean it round)
 	LoopOutAngle = 22, -- degrees past the balance point before it's gone
 
+	-- tricks: press to start, press again to stop. They work riding normally and in a wheelie,
+	-- and standing goes with either hand trick. On mobile: the Trick button cycles one-hander
+	-- left / right / no-hander, the Stand button stands up.
+	TrickKeys = {
+		oneL = { Enum.KeyCode.One, Enum.KeyCode.DPadLeft }, -- one-hander, left hand off
+		oneR = { Enum.KeyCode.Two, Enum.KeyCode.DPadRight }, -- one-hander, right hand off
+		noHand = { Enum.KeyCode.Three, Enum.KeyCode.DPadDown }, -- no-hander
+		stand = { Enum.KeyCode.Four, Enum.KeyCode.DPadUp }, -- stand up on the pegs
+	},
+
 	-- stoppie: brake (S) at speed and the rear wheel lifts. A little at low speed, more the
 	-- faster you were going, up to StoppieAngle at StoppieFullSpeed
 	StoppieOnBrake = true, -- false: no stoppies from braking

@@ -1,6 +1,6 @@
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-local RIDEKIT_VERSION: string? = "0f942e81"
+local RIDEKIT_VERSION: string? = "f97a8a76"
 
 local Config = (function()
 	-- RideKit settings. Tweak these in Studio while play-testing.
@@ -65,6 +65,16 @@ local Config = (function()
 		WheelieControl = 7, -- how tightly the rider holds the angle
 		WheelieSteer = 0.5, -- steering in a wheelie, times normal (you lean it round)
 		LoopOutAngle = 22, -- degrees past the balance point before it's gone
+
+		-- tricks: press to start, press again to stop. They work riding normally and in a wheelie,
+		-- and standing goes with either hand trick. On mobile: the Trick button cycles one-hander
+		-- left / right / no-hander, the Stand button stands up.
+		TrickKeys = {
+			oneL = { Enum.KeyCode.One, Enum.KeyCode.DPadLeft }, -- one-hander, left hand off
+			oneR = { Enum.KeyCode.Two, Enum.KeyCode.DPadRight }, -- one-hander, right hand off
+			noHand = { Enum.KeyCode.Three, Enum.KeyCode.DPadDown }, -- no-hander
+			stand = { Enum.KeyCode.Four, Enum.KeyCode.DPadUp }, -- stand up on the pegs
+		},
 
 		-- stoppie: brake (S) at speed and the rear wheel lifts. A little at low speed, more the
 		-- faster you were going, up to StoppieAngle at StoppieFullSpeed
@@ -1487,7 +1497,14 @@ local AnimPlayer = (function()
 				end
 				table.insert(frames, { t = k.t, pose = pose })
 			end
-			clips[name] = { length = c.length, loop = c.loop, frames = frames, steer = c.steer }
+			local parts = nil -- a trick clip that only moves some joints (e.g. one arm off the bars)
+			if c.parts then
+				parts = {}
+				for _, p in ipairs(c.parts) do
+					parts[p] = true
+				end
+			end
+			clips[name] = { length = c.length, loop = c.loop, frames = frames, steer = c.steer, parts = parts }
 		end
 		return clips
 	end
@@ -1514,14 +1531,14 @@ local AnimPlayer = (function()
 		return frames[#frames].pose
 	end
 
-	-- blend pose `over` on top of `base` with weight w (0..1)
-	function AnimPlayer.blend(base, over, w: number)
+	-- blend pose `over` on top of `base` with weight w (0..1); with `parts`, only those joints
+	function AnimPlayer.blend(base, over, w: number, parts: { [string]: boolean }?)
 		if w <= 1e-3 then
 			return base
 		end
 		local out = {}
 		for _, part in ipairs(PARTS) do
-			out[part] = base[part]:Lerp(over[part], math.min(w, 1))
+			out[part] = if parts and not parts[part] then base[part] else base[part]:Lerp(over[part], math.min(w, 1))
 		end
 		return out
 	end
@@ -1532,6 +1549,10 @@ local AnimPlayer = (function()
 		{ "LeanRight", "leanR" }, -- bars turned (hands follow the grips, head looks into the turn)
 		{ "LeanLeft", "leanL" },
 		{ "Wheelie", "wheelie" }, -- slid back, arms straight, eyes level as the front comes up
+		{ "Stand", "stand" }, -- trick: up on the pegs (also in a wheelie)
+		{ "OneHandL", "oneL" }, -- trick: left hand off the bars (only the left arm)
+		{ "OneHandR", "oneR" }, -- trick: right hand off the bars (only the right arm)
+		{ "NoHand", "noHand" }, -- trick: both hands off (only the arms)
 	}
 
 	--[[ Full riding pose.
@@ -1543,7 +1564,7 @@ local AnimPlayer = (function()
 		for _, layer in ipairs(AnimPlayer.LAYERS) do
 			local clip, weight = clips[layer[1]], w[layer[2]]
 			if clip and weight and weight > 1e-3 then
-				pose = AnimPlayer.blend(pose, AnimPlayer.sample(clip, t), weight)
+				pose = AnimPlayer.blend(pose, AnimPlayer.sample(clip, t), weight, clip.parts)
 			end
 		end
 		return pose
@@ -1662,6 +1683,26 @@ local AnimData = (function()
 				{ t = 0.0, pose = { ["Torso"] = { 0.30982, 0.00000, -0.00000, 0.95080 }, ["Head"] = { 0.04128, -0.00000, 0.00000, 0.99915 }, ["Right Arm"] = { 0.09109, 0.00000, 0.75471, 0.64970 }, ["Left Arm"] = { 0.11820, -0.00000, -0.75509, 0.64488 }, ["Right Leg"] = { -0.14599, -0.00000, 0.41134, 0.89971 }, ["Left Leg"] = { -0.12899, 0.00000, -0.41401, 0.90109 } }, pos = { ["Torso"] = { -0.00000, 0.37500, 0.00000 } } },
 				{ t = 0.5, pose = { ["Torso"] = { 0.30982, 0.00000, -0.00000, 0.95080 }, ["Head"] = { 0.04128, -0.00000, 0.00000, 0.99915 }, ["Right Arm"] = { 0.09109, 0.00000, 0.75471, 0.64970 }, ["Left Arm"] = { 0.11820, -0.00000, -0.75509, 0.64488 }, ["Right Leg"] = { -0.14599, -0.00000, 0.41134, 0.89971 }, ["Left Leg"] = { -0.12899, 0.00000, -0.41401, 0.90109 } }, pos = { ["Torso"] = { -0.00000, 0.37500, 0.00000 } } },
 				{ t = 1.0, pose = { ["Torso"] = { 0.30982, 0.00000, -0.00000, 0.95080 }, ["Head"] = { 0.04128, -0.00000, 0.00000, 0.99915 }, ["Right Arm"] = { 0.09109, 0.00000, 0.75471, 0.64970 }, ["Left Arm"] = { 0.11820, -0.00000, -0.75509, 0.64488 }, ["Right Leg"] = { -0.14599, -0.00000, 0.41134, 0.89971 }, ["Left Leg"] = { -0.12899, 0.00000, -0.41401, 0.90109 } }, pos = { ["Torso"] = { -0.00000, 0.37500, 0.00000 } } },
+			} },
+			OneHandL = { length = 1.0, loop = true, steer = 0.0, parts = { "Left Arm" }, keys = {
+				{ t = 0.0, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.02635, -0.00000, 0.08233, 0.99626 }, ["Right Arm"] = { 0.06891, 0.00000, 0.46694, 0.88160 }, ["Left Arm"] = { -0.67408, -0.00000, 0.27671, 0.68487 }, ["Right Leg"] = { -0.13334, 0.00000, 0.10895, 0.98506 }, ["Left Leg"] = { -0.11776, 0.00000, -0.10962, 0.98697 } } },
+				{ t = 0.5, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.02635, -0.00000, 0.08233, 0.99626 }, ["Right Arm"] = { 0.06891, 0.00000, 0.46694, 0.88160 }, ["Left Arm"] = { -0.72947, -0.00000, 0.29653, 0.61640 }, ["Right Leg"] = { -0.13334, 0.00000, 0.10895, 0.98506 }, ["Left Leg"] = { -0.11776, 0.00000, -0.10962, 0.98697 } } },
+				{ t = 1.0, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.02635, -0.00000, 0.08233, 0.99626 }, ["Right Arm"] = { 0.06891, 0.00000, 0.46694, 0.88160 }, ["Left Arm"] = { -0.67408, -0.00000, 0.27671, 0.68487 }, ["Right Leg"] = { -0.13334, 0.00000, 0.10895, 0.98506 }, ["Left Leg"] = { -0.11776, 0.00000, -0.10962, 0.98697 } } },
+			} },
+			OneHandR = { length = 1.0, loop = true, steer = 0.0, parts = { "Right Arm" }, keys = {
+				{ t = 0.0, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.02635, 0.00000, -0.08233, 0.99626 }, ["Right Arm"] = { -0.67408, 0.00000, -0.27671, 0.68487 }, ["Left Arm"] = { 0.08953, -0.00000, -0.46780, 0.87929 }, ["Right Leg"] = { -0.13334, 0.00000, 0.10895, 0.98506 }, ["Left Leg"] = { -0.11776, 0.00000, -0.10962, 0.98697 } } },
+				{ t = 0.5, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.02635, 0.00000, -0.08233, 0.99626 }, ["Right Arm"] = { -0.72947, 0.00000, -0.29653, 0.61640 }, ["Left Arm"] = { 0.08953, -0.00000, -0.46780, 0.87929 }, ["Right Leg"] = { -0.13334, 0.00000, 0.10895, 0.98506 }, ["Left Leg"] = { -0.11776, 0.00000, -0.10962, 0.98697 } } },
+				{ t = 1.0, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.02635, 0.00000, -0.08233, 0.99626 }, ["Right Arm"] = { -0.67408, 0.00000, -0.27671, 0.68487 }, ["Left Arm"] = { 0.08953, -0.00000, -0.46780, 0.87929 }, ["Right Leg"] = { -0.13334, 0.00000, 0.10895, 0.98506 }, ["Left Leg"] = { -0.11776, 0.00000, -0.10962, 0.98697 } } },
+			} },
+			NoHand = { length = 1.0, loop = true, steer = 0.0, parts = { "Left Arm", "Right Arm" }, keys = {
+				{ t = 0.0, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.01831, -0.00000, 0.00000, 0.99983 }, ["Right Arm"] = { -0.72829, 0.00000, -0.16019, 0.66629 }, ["Left Arm"] = { -0.72829, 0.00000, 0.16019, 0.66629 }, ["Right Leg"] = { -0.13334, 0.00000, 0.10895, 0.98506 }, ["Left Leg"] = { -0.11776, 0.00000, -0.10962, 0.98697 } } },
+				{ t = 0.5, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.01831, -0.00000, 0.00000, 0.99983 }, ["Right Arm"] = { -0.77753, -0.00000, -0.16843, 0.60587 }, ["Left Arm"] = { -0.77753, -0.00000, 0.16843, 0.60587 }, ["Right Leg"] = { -0.13334, 0.00000, 0.10895, 0.98506 }, ["Left Leg"] = { -0.11776, 0.00000, -0.10962, 0.98697 } } },
+				{ t = 1.0, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.01831, -0.00000, 0.00000, 0.99983 }, ["Right Arm"] = { -0.72829, 0.00000, -0.16019, 0.66629 }, ["Left Arm"] = { -0.72829, 0.00000, 0.16019, 0.66629 }, ["Right Leg"] = { -0.13334, 0.00000, 0.10895, 0.98506 }, ["Left Leg"] = { -0.11776, 0.00000, -0.10962, 0.98697 } } },
+			} },
+			Stand = { length = 1.0, loop = true, steer = 0.0, keys = {
+				{ t = 0.0, pose = { ["Torso"] = { 0.30982, 0.00000, -0.00000, 0.95080 }, ["Head"] = { -0.30334, 0.00000, 0.00000, 0.95288 }, ["Right Arm"] = { 0.08242, 0.00000, 0.68544, 0.72345 }, ["Left Arm"] = { 0.10700, -0.00000, -0.68615, 0.71955 }, ["Right Leg"] = { -0.11368, 0.00000, 0.34428, 0.93196 }, ["Left Leg"] = { -0.09726, 0.00000, -0.35200, 0.93093 } }, pos = { ["Torso"] = { -0.00000, 0.20000, 0.25000 } } },
+				{ t = 0.5, pose = { ["Torso"] = { 0.30982, 0.00000, -0.00000, 0.95080 }, ["Head"] = { -0.30334, 0.00000, 0.00000, 0.95288 }, ["Right Arm"] = { 0.08242, 0.00000, 0.68544, 0.72345 }, ["Left Arm"] = { 0.10700, -0.00000, -0.68615, 0.71955 }, ["Right Leg"] = { -0.11368, 0.00000, 0.34428, 0.93196 }, ["Left Leg"] = { -0.09726, 0.00000, -0.35200, 0.93093 } }, pos = { ["Torso"] = { -0.00000, 0.20000, 0.25000 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.30982, 0.00000, -0.00000, 0.95080 }, ["Head"] = { -0.30334, 0.00000, 0.00000, 0.95288 }, ["Right Arm"] = { 0.08242, 0.00000, 0.68544, 0.72345 }, ["Left Arm"] = { 0.10700, -0.00000, -0.68615, 0.71955 }, ["Right Leg"] = { -0.11368, 0.00000, 0.34428, 0.93196 }, ["Left Leg"] = { -0.09726, 0.00000, -0.35200, 0.93093 } }, pos = { ["Torso"] = { -0.00000, 0.20000, 0.25000 } } },
 			} },
 		},
 	}
@@ -1802,6 +1843,7 @@ if game:GetService("RunService"):IsServer() then
 			else
 				setRiderMassless(nil, false)
 				rider = nil
+				bike:SetAttribute("RK_Trick", "")
 				if not chassis.Anchored then
 					local speed = chassis.AssemblyLinearVelocity:Dot(chassis.CFrame.LookVector)
 					local crashed = physics.crashed
@@ -1818,7 +1860,19 @@ if game:GetService("RunService"):IsServer() then
 			updatePrompt()
 		end)
 
-		remote.OnServerEvent:Connect(function(player, what)
+		local TRICKS = { oneL = true, oneR = true, noHand = true, stand = true }
+		remote.OnServerEvent:Connect(function(player, what, arg)
+			if player == rider and what == "trick" and type(arg) == "string" and #arg < 40 then
+				-- the rider's tricks, for everyone else's copy of the animation
+				local ok = {}
+				for t in string.gmatch(arg, "%a+") do
+					if TRICKS[t] then
+						table.insert(ok, t)
+					end
+				end
+				bike:SetAttribute("RK_Trick", table.concat(ok, ","))
+				return
+			end
 			if player == rider and what == "crash" then
 				physics:crash("rider")
 				local weld = seat:FindFirstChild("SeatWeld")
@@ -1890,10 +1944,47 @@ else
 
 		-- E = wheelie (keyboard E, gamepad X, the Wheelie button on mobile); stoppies are on S
 		local leanBack = 0
-		local ACT_BACK = "RideKitWheelie_" .. bike.Name .. "_" .. tostring(math.random(1, 1e9))
+		local tag = bike.Name .. "_" .. tostring(math.random(1, 1e9))
+		local ACT_BACK = "RideKitWheelie_" .. tag
 		local function onBack(_, state)
 			leanBack = if state == Enum.UserInputState.Begin or state == Enum.UserInputState.Change then 1 else 0
 			return Enum.ContextActionResult.Sink
+		end
+
+		-- tricks (press to start, again to stop): 1 / 2 one-hander left / right, 3 no-hander,
+		-- 4 stand. Everyone else sees them through the bike's RK_Trick attribute.
+		local hands: string? = nil -- "oneL" | "oneR" | "noHand"
+		local standing = false
+		local function sendTricks()
+			if remote then
+				remote:FireServer("trick", (hands or "") .. (if standing then ",stand" else ""))
+			end
+		end
+		local function toggle(trick: string)
+			if trick == "stand" then
+				standing = not standing
+			else
+				hands = if hands == trick then nil else trick
+			end
+			sendTricks()
+		end
+		local CYCLE = { [""] = "oneL", oneL = "oneR", oneR = "noHand", noHand = "" }
+		local function onTrick(action, state)
+			if state ~= Enum.UserInputState.Begin then
+				return Enum.ContextActionResult.Sink
+			end
+			local trick = string.match(action, "^RideKitTrick_(%a+)_")
+			if trick == "cycle" then -- mobile Trick button
+				local nxt = CYCLE[hands or ""]
+				hands = if nxt == "" then nil else nxt
+				sendTricks()
+			elseif trick then
+				toggle(trick)
+			end
+			return Enum.ContextActionResult.Sink
+		end
+		local function trickAction(trick: string)
+			return "RideKitTrick_" .. trick .. "_" .. tag
 		end
 
 		local wasDriver = false
@@ -1941,9 +2032,26 @@ else
 				ContextActionService:BindActionAtPriority(ACT_BACK, onBack, true, prio, table.unpack(Config.WheelieKeys))
 				ContextActionService:SetTitle(ACT_BACK, "Wheelie")
 				ContextActionService:SetPosition(ACT_BACK, UDim2.new(1, -190, 1, -95))
+				for trick, keys in pairs(Config.TrickKeys) do
+					ContextActionService:BindActionAtPriority(trickAction(trick), onTrick, false, prio, table.unpack(keys))
+				end
+				-- mobile: Trick cycles the hand tricks, Stand stands up
+				ContextActionService:BindActionAtPriority(trickAction("cycle"), onTrick, true, prio)
+				ContextActionService:SetTitle(trickAction("cycle"), "Trick")
+				ContextActionService:SetPosition(trickAction("cycle"), UDim2.new(1, -270, 1, -95))
+				ContextActionService:BindActionAtPriority(trickAction("stand"), onTrick, true, prio, table.unpack(Config.TrickKeys.stand))
+				ContextActionService:SetTitle(trickAction("stand"), "Stand")
+				ContextActionService:SetPosition(trickAction("stand"), UDim2.new(1, -270, 1, -165))
 			else
 				ContextActionService:UnbindAction(ACT_BACK)
+				for trick in pairs(Config.TrickKeys) do
+					ContextActionService:UnbindAction(trickAction(trick))
+				end
+				ContextActionService:UnbindAction(trickAction("cycle"))
 				leanBack = 0
+				if hands or standing then
+					hands, standing = nil, false
+				end
 			end
 		end
 
@@ -2125,11 +2233,26 @@ else
 				elseif hitR and not hitF then
 					wheelieUp = math.asin(math.clamp(cf.LookVector.Y, -1, 1))
 				end
+				-- tricks: this player's own toggles, or the rider's as published on the bike
+				local th, ts = hands, standing
+				if char ~= player.Character then
+					local list = tostring(bike:GetAttribute("RK_Trick") or "")
+					th = if string.find(list, "oneL", 1, true)
+						then "oneL"
+						elseif string.find(list, "oneR", 1, true) then "oneR"
+						elseif string.find(list, "noHand", 1, true) then "noHand"
+						else nil
+					ts = string.find(list, "stand", 1, true) ~= nil
+				end
 				local target = {
 					brake = if braking or stoppie then math.max(brake, if stoppie then 1 else 0) else 0,
 					leanR = math.clamp(steerVis / clipSteer, 0, 1),
 					leanL = math.clamp(-steerVis / clipSteer, 0, 1),
 					wheelie = math.clamp((wheelieUp - 0.05) / (math.rad(Config.WheelieAngle) - 0.05), 0, 1),
+					stand = if ts then 1 else 0,
+					oneL = if th == "oneL" then 1 else 0,
+					oneR = if th == "oneR" then 1 else 0,
+					noHand = if th == "noHand" then 1 else 0,
 				}
 				local a = 1 - math.exp(-Config.AnimBlendSpeed * dt)
 				for k, v in pairs(target) do

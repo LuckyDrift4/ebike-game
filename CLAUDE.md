@@ -94,6 +94,16 @@
   - Wheelie: slid back on the seat, arms straight, body upright to the road,
     eyes level. The user asked for this after seeing the bike tilt back with an
     upright rider.
+- Tricks were asked for, inspired by the Roblox game AMPED. Each is a
+  toggle, works while riding and in a wheelie, and is synced to other players
+  through the bike's `RK_Trick` attribute (set by the server from the rider's
+  remote):
+  - 1 / 2: one-hander left / right (OneHandL / OneHandR clips).
+  - 3: no-hander (NoHand).
+  - 4: stand (Stand, which can be combined with a hand trick).
+  - E stays the wheelie key.
+- The hand-trick clips carry `parts` (arms only), and `AnimPlayer.blend` masks
+  them, so they layer over the wheelie or the stand.
 - Clips can still move the torso: an optional `pos` on a key is the RootJoint
   `Transform` position.
 - No on-screen UI. The user asked for all of it to be removed. Keep the mobile

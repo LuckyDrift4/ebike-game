@@ -88,7 +88,16 @@ Use either this or the `RideKit.rbxmx` method below, not both.
 | Steer | A / D | left stick | thumbstick |
 | Wheelie (hold, with throttle, while moving) | E | X | Wheelie button |
 | Stoppie | S at speed | left trigger at speed | thumbstick back at speed |
+| One-hander left / right (toggle) | 1 / 2 | D-pad left / right | Trick button (cycles) |
+| No-hander (toggle) | 3 | D-pad down | Trick button (cycles) |
+| Stand up on the pegs (toggle) | 4 | D-pad up | Stand button |
 | Get off | Space | A | Jump button |
+
+**Tricks:**
+- Press a trick key to start it and press it again to stop. Tricks work while
+  riding normally and in a wheelie.
+- Standing goes with either hand trick: 4 then 1 is a standing one-hander.
+- Everyone in the server sees your tricks.
 
 **Wheelies:**
 - Hold E and the throttle: it eases up to about 38 degrees and holds. Let off
@@ -149,7 +158,8 @@ paused for the local rider while riding and turned back on when they get off.
 ## Optional: the clips in the Animation Editor
 
 `RideAnims_R6.rbxmx` holds the same Blender clips as KeyframeSequences, named
-`RideRide`, `RideBrake`, `RideLeanRight`, `RideLeanLeft` and `RideWheelie`.
+`RideRide`, `RideBrake`, `RideLeanRight`, `RideLeanLeft`, `RideWheelie`,
+`RideOneHandL`, `RideOneHandR`, `RideNoHand` and `RideStand`.
 
 1. Insert the file into your R6 dummy (`Rig`), then move the sequences into a
    folder named `AnimSaves` inside the rig. Create the folder if it isn't there.
@@ -182,7 +192,13 @@ publish them yourself.
   - **Basics:** settling, top speed, braking, cornering lean at three speeds
     and three frame rates.
   - **Surfaces:** ice, sand and mud.
-  - **Wheelies:** assisted, unassisted, looping out, saving it with the rear
+  - **Tricks:**
+- Press a trick key to start it and press it again to stop. Tricks work while
+  riding normally and in a wheelie.
+- Standing goes with either hand trick: 4 then 1 is a standing one-hander.
+- Everyone in the server sees your tricks.
+
+**Wheelies:** assisted, unassisted, looping out, saving it with the rear
     brake, steering one, and one at 30 fps.
   - **Stoppies:** on S, growing with speed, none at low speed.
   - **Jumps and air control:** manual and assisted.

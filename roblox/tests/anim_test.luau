@@ -107,6 +107,53 @@ end
 local h = measure(AnimPlayer.pose(clips, 0.3, { brake = 0, leanR = 0.5, leanL = 0 }), clips.LeanRight.steer * 0.5)
 print(string.format("half lean right: hands->grips %.3f", h))
 check(h < 0.25, "half lean keeps the hands near the grips")
+-- tricks ------------------------------------------------------------------------------------------
+local function hands(pose, steer)
+	local b = body(pose)
+	local turn = sp * CFrame.fromAxisAngle(Vector3.yAxis, -steer) * sp:Inverse()
+	local gR, gL = turn * v(BikeRef.gripR), turn * v(BikeRef.gripL)
+	local hR = (b["Right Arm"] * Vector3.new(0, -1, 0) - gR).Magnitude
+	local hL = (b["Left Arm"] * Vector3.new(0, -1, 0) - gL).Magnitude
+	local fR = (b["Right Leg"] * Vector3.new(0, -1, 0) - v(BikeRef.pegR)).Magnitude
+	local fL = (b["Left Leg"] * Vector3.new(0, -1, 0) - v(BikeRef.pegL)).Magnitude
+	return hR, hL, math.max(fR, fL), b
+end
+for _, spec in ipairs({
+	{ "OneHandL", { oneL = 1 }, false, true },
+	{ "OneHandR", { oneR = 1 }, true, false },
+	{ "NoHand", { noHand = 1 }, true, true },
+}) do
+	local name, w, offR, offL = spec[1], spec[2], spec[3], spec[4]
+	check(clips[name] ~= nil and clips[name].parts ~= nil, name .. ": exported as an arms-only clip")
+	for _, base in ipairs({ {}, { wheelie = 1 }, { stand = 1 } }) do
+		local ww = table.clone(base)
+		for k, x in pairs(w) do
+			ww[k] = x
+		end
+		local hR, hL = hands(AnimPlayer.pose(clips, 0.4, ww), 0)
+		local okR = if offR then hR > 0.8 else hR < 0.12
+		local okL = if offL then hL > 0.8 else hL < 0.12
+		print(string.format("%-8s over %-8s right hand %.2f  left hand %.2f from the grips", name, next(base) or "riding", hR, hL))
+		check(okR and okL, name .. ": the right hands off the bars")
+	end
+	-- arms only: the rest of the body is whatever it was (here the wheelie)
+	local a = body(AnimPlayer.pose(clips, 0.4, { wheelie = 1 }))
+	local b = body(AnimPlayer.pose(clips, 0.4, { wheelie = 1, [next(w)] = 1 }))
+	check((a.Torso.Position - b.Torso.Position).Magnitude < 1e-4 and (a.Head.Position - b.Head.Position).Magnitude < 1e-4, name .. ": only moves the arms")
+end
+do
+	local worstH, worstF = 0, 0
+	for t = 0, clips.Stand.length, 0.05 do
+		local hR, hL, f = hands(AnimPlayer.sample(clips.Stand, t), 0)
+		worstH, worstF = math.max(worstH, hR, hL), math.max(worstF, f)
+	end
+	local stand = body(AnimPlayer.sample(clips.Stand, 0))
+	local sit = body(AnimPlayer.sample(clips.Ride, 0))
+	local rise = (stand.Torso.Position - sit.Torso.Position):Dot(chassis.UpVector)
+	print(string.format("Stand     hands->grips worst %.3f  feet->pegs worst %.3f  hips up %.2f", worstH, worstF, rise))
+	check(worstH < 0.12 and worstF < 0.15 and rise > 0.1, "Stand: up on the pegs, hands on the grips")
+end
+
 -- sitting upright (the pose the user asked for): the torso stays close to vertical on the bike
 local up = body(AnimPlayer.sample(clips.Ride, 0)).Torso.UpVector:Dot(chassis.UpVector)
 print(string.format("Ride torso upright: %.1f deg from the bike's up", math.deg(math.acos(math.clamp(up, -1, 1)))))

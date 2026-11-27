@@ -131,6 +131,7 @@ seat:GetPropertyChangedSignal("Occupant"):Connect(function()
 	else
 		setRiderMassless(nil, false)
 		rider = nil
+		bike:SetAttribute("RK_Trick", "")
 		if not chassis.Anchored then
 			local speed = chassis.AssemblyLinearVelocity:Dot(chassis.CFrame.LookVector)
 			local crashed = physics.crashed
@@ -147,7 +148,19 @@ seat:GetPropertyChangedSignal("Occupant"):Connect(function()
 	updatePrompt()
 end)
 
-remote.OnServerEvent:Connect(function(player, what)
+local TRICKS = { oneL = true, oneR = true, noHand = true, stand = true }
+remote.OnServerEvent:Connect(function(player, what, arg)
+	if player == rider and what == "trick" and type(arg) == "string" and #arg < 40 then
+		-- the rider's tricks, for everyone else's copy of the animation
+		local ok = {}
+		for t in string.gmatch(arg, "%a+") do
+			if TRICKS[t] then
+				table.insert(ok, t)
+			end
+		end
+		bike:SetAttribute("RK_Trick", table.concat(ok, ","))
+		return
+	end
 	if player == rider and what == "crash" then
 		physics:crash("rider")
 		local weld = seat:FindFirstChild("SeatWeld")

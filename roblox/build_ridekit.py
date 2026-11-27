@@ -64,8 +64,11 @@ def anim_data_lua(data):
              "-- (pos: the torso's Transform position where it moves off the seat, e.g. standing).",
              "return {", f"\tbike = {lua_str(data['bike'])},", "\tclips = {"]
     for name, c in data["clips"].items():
+        parts = ""
+        if c.get("parts"):
+            parts = "parts = { " + ", ".join(lua_str(p) for p in c["parts"]) + " }, "
         lines.append(f"\t\t{name} = {{ length = {c['length']}, loop = {str(c['loop']).lower()}, "
-                     f"steer = {c['steer']}, keys = {{")
+                     f"steer = {c['steer']}, {parts}keys = {{")
         for k in c["keys"]:
             pose = ", ".join(f"[{lua_str(p)}] = {{ {', '.join(f'{v:.5f}' for v in k['pose'][p])} }}" for p in PART_ORDER)
             pos = ""

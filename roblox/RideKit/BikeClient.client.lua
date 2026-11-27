@@ -53,10 +53,47 @@ local function runBike(bike: Model)
 
 	-- E = wheelie (keyboard E, gamepad X, the Wheelie button on mobile); stoppies are on S
 	local leanBack = 0
-	local ACT_BACK = "RideKitWheelie_" .. bike.Name .. "_" .. tostring(math.random(1, 1e9))
+	local tag = bike.Name .. "_" .. tostring(math.random(1, 1e9))
+	local ACT_BACK = "RideKitWheelie_" .. tag
 	local function onBack(_, state)
 		leanBack = if state == Enum.UserInputState.Begin or state == Enum.UserInputState.Change then 1 else 0
 		return Enum.ContextActionResult.Sink
+	end
+
+	-- tricks (press to start, again to stop): 1 / 2 one-hander left / right, 3 no-hander,
+	-- 4 stand. Everyone else sees them through the bike's RK_Trick attribute.
+	local hands: string? = nil -- "oneL" | "oneR" | "noHand"
+	local standing = false
+	local function sendTricks()
+		if remote then
+			remote:FireServer("trick", (hands or "") .. (if standing then ",stand" else ""))
+		end
+	end
+	local function toggle(trick: string)
+		if trick == "stand" then
+			standing = not standing
+		else
+			hands = if hands == trick then nil else trick
+		end
+		sendTricks()
+	end
+	local CYCLE = { [""] = "oneL", oneL = "oneR", oneR = "noHand", noHand = "" }
+	local function onTrick(action, state)
+		if state ~= Enum.UserInputState.Begin then
+			return Enum.ContextActionResult.Sink
+		end
+		local trick = string.match(action, "^RideKitTrick_(%a+)_")
+		if trick == "cycle" then -- mobile Trick button
+			local nxt = CYCLE[hands or ""]
+			hands = if nxt == "" then nil else nxt
+			sendTricks()
+		elseif trick then
+			toggle(trick)
+		end
+		return Enum.ContextActionResult.Sink
+	end
+	local function trickAction(trick: string)
+		return "RideKitTrick_" .. trick .. "_" .. tag
 	end
 
 	local wasDriver = false
@@ -104,9 +141,26 @@ local function runBike(bike: Model)
 			ContextActionService:BindActionAtPriority(ACT_BACK, onBack, true, prio, table.unpack(Config.WheelieKeys))
 			ContextActionService:SetTitle(ACT_BACK, "Wheelie")
 			ContextActionService:SetPosition(ACT_BACK, UDim2.new(1, -190, 1, -95))
+			for trick, keys in pairs(Config.TrickKeys) do
+				ContextActionService:BindActionAtPriority(trickAction(trick), onTrick, false, prio, table.unpack(keys))
+			end
+			-- mobile: Trick cycles the hand tricks, Stand stands up
+			ContextActionService:BindActionAtPriority(trickAction("cycle"), onTrick, true, prio)
+			ContextActionService:SetTitle(trickAction("cycle"), "Trick")
+			ContextActionService:SetPosition(trickAction("cycle"), UDim2.new(1, -270, 1, -95))
+			ContextActionService:BindActionAtPriority(trickAction("stand"), onTrick, true, prio, table.unpack(Config.TrickKeys.stand))
+			ContextActionService:SetTitle(trickAction("stand"), "Stand")
+			ContextActionService:SetPosition(trickAction("stand"), UDim2.new(1, -270, 1, -165))
 		else
 			ContextActionService:UnbindAction(ACT_BACK)
+			for trick in pairs(Config.TrickKeys) do
+				ContextActionService:UnbindAction(trickAction(trick))
+			end
+			ContextActionService:UnbindAction(trickAction("cycle"))
 			leanBack = 0
+			if hands or standing then
+				hands, standing = nil, false
+			end
 		end
 	end
 
@@ -288,11 +342,26 @@ local function runBike(bike: Model)
 			elseif hitR and not hitF then
 				wheelieUp = math.asin(math.clamp(cf.LookVector.Y, -1, 1))
 			end
+			-- tricks: this player's own toggles, or the rider's as published on the bike
+			local th, ts = hands, standing
+			if char ~= player.Character then
+				local list = tostring(bike:GetAttribute("RK_Trick") or "")
+				th = if string.find(list, "oneL", 1, true)
+					then "oneL"
+					elseif string.find(list, "oneR", 1, true) then "oneR"
+					elseif string.find(list, "noHand", 1, true) then "noHand"
+					else nil
+				ts = string.find(list, "stand", 1, true) ~= nil
+			end
 			local target = {
 				brake = if braking or stoppie then math.max(brake, if stoppie then 1 else 0) else 0,
 				leanR = math.clamp(steerVis / clipSteer, 0, 1),
 				leanL = math.clamp(-steerVis / clipSteer, 0, 1),
 				wheelie = math.clamp((wheelieUp - 0.05) / (math.rad(Config.WheelieAngle) - 0.05), 0, 1),
+				stand = if ts then 1 else 0,
+				oneL = if th == "oneL" then 1 else 0,
+				oneR = if th == "oneR" then 1 else 0,
+				noHand = if th == "noHand" then 1 else 0,
 			}
 			local a = 1 - math.exp(-Config.AnimBlendSpeed * dt)
 			for k, v in pairs(target) do

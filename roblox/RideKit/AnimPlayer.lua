@@ -33,7 +33,14 @@ function AnimPlayer.prepare(data)
 			end
 			table.insert(frames, { t = k.t, pose = pose })
 		end
-		clips[name] = { length = c.length, loop = c.loop, frames = frames, steer = c.steer }
+		local parts = nil -- a trick clip that only moves some joints (e.g. one arm off the bars)
+		if c.parts then
+			parts = {}
+			for _, p in ipairs(c.parts) do
+				parts[p] = true
+			end
+		end
+		clips[name] = { length = c.length, loop = c.loop, frames = frames, steer = c.steer, parts = parts }
 	end
 	return clips
 end
@@ -60,14 +67,14 @@ function AnimPlayer.sample(clip, t: number)
 	return frames[#frames].pose
 end
 
--- blend pose `over` on top of `base` with weight w (0..1)
-function AnimPlayer.blend(base, over, w: number)
+-- blend pose `over` on top of `base` with weight w (0..1); with `parts`, only those joints
+function AnimPlayer.blend(base, over, w: number, parts: { [string]: boolean }?)
 	if w <= 1e-3 then
 		return base
 	end
 	local out = {}
 	for _, part in ipairs(PARTS) do
-		out[part] = base[part]:Lerp(over[part], math.min(w, 1))
+		out[part] = if parts and not parts[part] then base[part] else base[part]:Lerp(over[part], math.min(w, 1))
 	end
 	return out
 end
@@ -78,6 +85,10 @@ AnimPlayer.LAYERS = {
 	{ "LeanRight", "leanR" }, -- bars turned (hands follow the grips, head looks into the turn)
 	{ "LeanLeft", "leanL" },
 	{ "Wheelie", "wheelie" }, -- slid back, arms straight, eyes level as the front comes up
+	{ "Stand", "stand" }, -- trick: up on the pegs (also in a wheelie)
+	{ "OneHandL", "oneL" }, -- trick: left hand off the bars (only the left arm)
+	{ "OneHandR", "oneR" }, -- trick: right hand off the bars (only the right arm)
+	{ "NoHand", "noHand" }, -- trick: both hands off (only the arms)
 }
 
 --[[ Full riding pose.
@@ -89,7 +100,7 @@ function AnimPlayer.pose(clips, t: number, w)
 	for _, layer in ipairs(AnimPlayer.LAYERS) do
 		local clip, weight = clips[layer[1]], w[layer[2]]
 		if clip and weight and weight > 1e-3 then
-			pose = AnimPlayer.blend(pose, AnimPlayer.sample(clip, t), weight)
+			pose = AnimPlayer.blend(pose, AnimPlayer.sample(clip, t), weight, clip.parts)
 		end
 	end
 	return pose

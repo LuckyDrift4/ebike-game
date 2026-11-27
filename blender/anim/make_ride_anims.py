@@ -12,6 +12,7 @@ Builds (in blender/anim/ride_anims.blend):
   * Damped Track constraints: arms -> grips, legs -> steps, head -> look-at
   * keyframed torso / look-at / steering for each clip on one timeline:
       Ride (loop) | Brake | LeanRight | LeanLeft | Wheelie
+      | OneHandL | OneHandR | NoHand | Stand   (tricks, toggled with 1 / 2 / 3 / 4)
     The rider sits upright on the seat (the pose the user asked for), legs straight down
     and a little forward, hands on the grips. In a wheelie they slide back on the seat, arms straight, body
     upright to the road and eyes level.
@@ -253,7 +254,7 @@ def add_constraints(arm, targets, look):
     c.track_axis = "TRACK_NEGATIVE_Y"  # the face looks along -Y of the neck joint frame
 
 
-def aim_points(steer_angle, q_torso, t=None):
+def aim_points(steer_angle, q_torso, t=None, legs_to_pegs=False):
     """Roblox-space aim point for each limb: the hand sits 0.5 outboard of the arm's
     axis and the foot 0.5 inboard of the leg's, along the torso's right vector, so aim
     the axis 0.5 the other way of the (steered) grip / step."""
@@ -276,8 +277,12 @@ def aim_points(steer_angle, q_torso, t=None):
 
     hR = (torso @ R6["Right Leg"][1]).translation
     hL = (torso @ R6["Left Leg"][1]).translation
+    if legs_to_pegs:  # standing: straight legs, feet on the pegs
+        legR, legL = Vector(REF["pegR"]) + rt * 0.5, Vector(REF["pegL"]) - rt * 0.5
+    else:
+        legR, legL = leg_aim(hR, REF["pegR"], 1), leg_aim(hL, REF["pegL"], -1)
     return {"Right Arm": gR - rt * 0.5, "Left Arm": gL + rt * 0.5,
-            "Right Leg": leg_aim(hR, REF["pegR"], 1), "Left Leg": leg_aim(hL, REF["pegL"], -1),
+            "Right Leg": legR, "Left Leg": legL,
             "gripR": gR, "gripL": gL}
 
 
@@ -332,6 +337,31 @@ def best_seated(lean0, slide_range=(-0.9, 0.2), lean_span=0.5, w_lean=0.4, steer
     return best[1], best[2]
 
 
+def best_stand(lean0, f_range=(-0.8, 1.2), u_range=(0.0, 2.0), lean_range=(-0.4, 1.3), w_lean=0.08):
+    """Standing on the pegs: R6 legs can't bend, so stand where both legs are exactly a
+    leg's length from the pegs (feet on them) and both hands reach the grips. Searches the
+    torso's lean and how far it moves forward / up off the seat."""
+    best = None
+    for i in range(int((lean_range[1] - lean_range[0]) / 0.02) + 1):
+        lean = lean_range[0] + i * 0.02
+        q = torso_rotation(lean)
+        for j in range(int((f_range[1] - f_range[0]) / 0.05) + 1):
+            f = f_range[0] + j * 0.05
+            for k in range(int((u_range[1] - u_range[0]) / 0.05) + 1):
+                u = u_range[0] + k * 0.05
+                t = stand_offset(f, u)
+                sp = shoulder_points(q, t)
+                g = aim_points(0.0, q, t)
+                eR = (g["gripR"] - sp["Right Arm"]).length - HAND_REACH
+                eL = (g["gripL"] - sp["Left Arm"]).length - HAND_REACH
+                fR = (Vector(REF["pegR"]) - sp["Right Leg"]).length - LEG_REACH
+                fL = (Vector(REF["pegL"]) - sp["Left Leg"]).length - LEG_REACH
+                cost = eR * eR + eL * eL + fR * fR + fL * fL + w_lean * (lean - lean0) ** 2
+                if best is None or cost < best[0]:
+                    best = (cost, lean, f, u)
+    return best[1], best[2], best[3]
+
+
 # --- clips ----------------------------------------------------------------------------
 STEER_ANIM = 0.24  # bars turned this much (rad) in the lean clips (matches RideKit MaxSteerAngle)
 CLIPS = [
@@ -341,7 +371,15 @@ CLIPS = [
     ("LeanRight", 131, 30, True),
     ("LeanLeft", 181, 30, True),
     ("Wheelie", 231, 30, True),
+    ("OneHandL", 281, 30, True),
+    ("OneHandR", 331, 30, True),
+    ("NoHand", 381, 30, True),
+    ("Stand", 431, 30, True),
 ]
+# trick clips that only move some joints: RideKit lays just those over whatever the rider
+# is doing (riding, wheelie, standing)
+CLIP_PARTS = {"OneHandL": ["Left Arm"], "OneHandR": ["Right Arm"], "NoHand": ["Left Arm", "Right Arm"]}
+FREE_ARMS = CLIP_PARTS  # arms off the bars in these clips (refine_hands leaves them alone)
 WHEELIE_PITCH = math.radians(38)  # how far the bike is pitched up in a held wheelie (Config.WheelieAngle)
 UPRIGHT = 0.0  # torso lean while sitting (0 = straight up); RideKit's Config.Pose.TorsoLean
 
@@ -379,11 +417,15 @@ def animate(arm, steer, look, targets):
 
     report = {}
 
-    def pose_at(frame, lean, roll, tw, steer_angle, t=None):
+    def pose_at(frame, lean, roll, tw, steer_angle, t=None, free=None, legs_to_pegs=False):
         q = torso_rotation(lean, roll, tw)
         key_torso(arm, frame, q, t)
         key_obj(steer, frame, rot=steer_rot(steer_angle))
-        for name, p in aim_points(steer_angle, q, t).items():
+        aims = aim_points(steer_angle, q, t, legs_to_pegs)
+        sp = shoulder_points(q, t)
+        for name, d in (free or {}).items():  # a hand off the bars: the arm points this way
+            aims[name] = sp[name] + d.normalized() * 2.0
+        for name, p in aims.items():
             if name in targets:
                 key_obj(targets[name], frame, loc=pt(p))
 
@@ -427,6 +469,39 @@ def animate(arm, steer, look, targets):
         key_obj(look, s + f, loc=look_at(ahead=12.0, height=level))
     KEY_FRAMES["Wheelie"] = (0, 15, 30)
 
+    # One-handers: one arm off the bars, swung out to the side and back with a little wave
+    ride_lean, ride_tw = report["Ride"]
+    for idx, side, name in ((5, -1, "Left Arm"), (6, 1, "Right Arm")):
+        s = CLIPS[idx][1]
+        report[CLIPS[idx][0]] = (ride_lean, ride_tw)
+        for f, up in ((0, 0.05), (15, 0.22), (30, 0.05)):
+            out = RIGHT * side * 0.85 - FWD * 0.35 + UP * up
+            pose_at(s + f, ride_lean, 0, ride_tw, 0.0, free={name: out})
+            key_obj(look, s + f, loc=look_at(side=side * 2.0, height=0.6))
+        KEY_FRAMES[CLIPS[idx][0]] = (0, 15, 30)
+
+    # No-hander: both arms out wide, a slow wave
+    s = CLIPS[7][1]
+    report["NoHand"] = (ride_lean, ride_tw)
+    for f, up in ((0, 0.1), (15, 0.25), (30, 0.1)):
+        pose_at(s + f, ride_lean, 0, ride_tw, 0.0, free={
+            "Right Arm": RIGHT * 0.9 - FWD * 0.2 + UP * up,
+            "Left Arm": -RIGHT * 0.9 - FWD * 0.2 + UP * up})
+        key_obj(look, s + f, loc=look_at(height=0.8))
+    KEY_FRAMES["NoHand"] = (0, 15, 30)
+
+    # Standing: up on the pegs, legs straight, hands on the grips (in a wheelie the bike's
+    # pitch tips this back, so the rider stands tall)
+    lean, fw, upw = best_stand(0.6)
+    report["Stand"] = (lean, fw, upw)
+    s = CLIPS[8][1]
+    for f, du in ((0, 0.0), (15, -0.05), (30, 0.0)):
+        l2, f2, u2 = best_stand(lean, f_range=(fw - 0.25, fw + 0.25), u_range=(max(upw + du - 0.15, 0), upw + du + 0.15),
+                                lean_range=(lean - 0.15, lean + 0.15), w_lean=0.3)
+        pose_at(s + f, l2, 0, 0.0, 0.0, stand_offset(f2, u2), legs_to_pegs=True)
+        key_obj(look, s + f, loc=look_at(height=0.9))
+    KEY_FRAMES["Stand"] = (0, 15, 30)
+
     for ob in [arm, steer, look] + list(targets.values()):
         ad = ob.animation_data
         if ad and ad.action:
@@ -447,16 +522,18 @@ def refine_hands(targets, iterations=6):
     worst = 0.0
     for name, start, length, loop in CLIPS:
         for f in KEY_FRAMES.get(name, (0, length)):
+            on_bars = [(a, g) for a, g in (("Right Arm", "gripR"), ("Left Arm", "gripL"))
+                       if a not in FREE_ARMS.get(name, ())]
             for _ in range(iterations):
                 sc.frame_set(start + f)
-                for arm_name, grip in (("Right Arm", "gripR"), ("Left Arm", "gripL")):
+                for arm_name, grip in on_bars:
                     hand = bpy.data.objects[arm_name].matrix_world @ Vector((0, -1, 0))
                     miss = hand - bpy.data.objects[grip].matrix_world.translation
                     aim = targets[arm_name]
                     aim.location = aim.location - miss
                     aim.keyframe_insert("location", frame=start + f)
             sc.frame_set(start + f)
-            for arm_name, grip in (("Right Arm", "gripR"), ("Left Arm", "gripL")):
+            for arm_name, grip in on_bars:
                 hand = bpy.data.objects[arm_name].matrix_world @ Vector((0, -1, 0))
                 worst = max(worst, (hand - bpy.data.objects[grip].matrix_world.translation).length)
     return worst
@@ -483,7 +560,7 @@ def sample_visual(arm, frame):
 def export(arm):
     clips = {}
     for name, start, length, loop in CLIPS:
-        step = 3 if name == "Ride" else (15 if name == "Wheelie" else length)
+        step = 3 if name == "Ride" else (15 if name in KEY_FRAMES and name != "Ride" else length)
         keys = []
         for f in range(0, length + 1, step):
             pose, pos = sample_visual(arm, start + f)
@@ -493,6 +570,8 @@ def export(arm):
             keys.append(key)
         clips[name] = {"length": round(length / FPS, 4), "loop": loop, "keys": keys,
                        "steer": STEER_ANIM if name == "LeanRight" else (-STEER_ANIM if name == "LeanLeft" else 0.0)}
+        if name in CLIP_PARTS:
+            clips[name]["parts"] = CLIP_PARTS[name]
     out = {"rig": "R6", "bike": REF["bike"], "fps": FPS, "joints": ORDER, "clips": clips,
            "note": "Motor6D.Transform rotations (x, y, z, w) sampled from blender/anim/ride_anims.blend"}
     os.makedirs(os.path.join(ROOT, "roblox", "anim"), exist_ok=True)
