@@ -62,9 +62,15 @@
   `blender/anim/make_ride_anims.py`. RideKit's `AnimPlayer` only plays and
   blends them. The blend weights come from the physics state. Don't bring back
   the old procedural `Pose` module.
-- Clips can move the torso: an optional `pos` on a key is the RootJoint
-  `Transform` position. Stand and Stoppie use it so the rigid R6 legs reach the
-  pegs exactly.
+- The rider always sits upright (`Pose.TorsoLean = 0`), like the user's
+  reference photo: on the seat, legs straight to the pegs, hands on the grips.
+  There's no tuck, no standing, no hanging into corners and no separate
+  wheelie pose. The clips are Ride, Brake and LeanRight/LeanLeft (bars turned,
+  head into the turn).
+- Clips can still move the torso: an optional `pos` on a key is the RootJoint
+  `Transform` position.
+- No on-screen UI. The user asked for all of it to be removed. Keep the mobile
+  Wheelie touch button.
 - **Order of steps after rig changes:**
   1. `node roblox/tests/run_tests.mjs rig_test.luau`. This writes
      `blender/anim/bike_ref.json`.

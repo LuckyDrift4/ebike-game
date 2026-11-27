@@ -53,7 +53,7 @@ local function measure(pose, steer)
 end
 
 local clips = AnimPlayer.prepare(AnimData)
-for _, name in ipairs({ "Ride", "Tuck", "Brake", "LeanRight", "LeanLeft", "Wheelie", "Stand", "Stoppie", "HangRight", "HangLeft" }) do
+for _, name in ipairs({ "Ride", "Brake", "LeanRight", "LeanLeft" }) do
 	local clip = clips[name]
 	check(clip ~= nil, name .. ": clip exported")
 	if not clip then
@@ -66,19 +66,13 @@ for _, name in ipairs({ "Ride", "Tuck", "Brake", "LeanRight", "LeanLeft", "Wheel
 	end
 	print(string.format("%-9s hands->grips worst %.3f  feet->steps worst %.3f  head·forward min %+.2f", name, worstH, worstF, minLook))
 	check(worstH < 0.12, name .. ": hands on the grips")
-	local standing = name == "Stand" or name == "Stoppie"
-	check(worstF < (if standing then 0.15 else 0.5), name .. ": feet at the steps")
+	check(worstF < 0.5, name .. ": feet at the steps")
 	check(minLook > 0.6, name .. ": looking forward")
 end
 -- blends the client makes while riding straight (bars straight)
 for _, w in ipairs({
-	{ tuck = 0.5, brake = 0, leanR = 0, leanL = 0, wheelie = 0 },
-	{ tuck = 0, brake = 0.7, leanR = 0, leanL = 0, wheelie = 0 },
-	{ tuck = 1, brake = 0, leanR = 0, leanL = 0, wheelie = 0.5 },
-	{ stand = 1, tuck = 0.5 },
-	{ stand = 0.5, hangR = 0.5 },
-	{ hangL = 1, tuck = 1 },
-	{ stoppie = 1, brake = 1 },
+	{ brake = 0.5 },
+	{ brake = 1 },
 }) do
 	local h = measure(AnimPlayer.pose(clips, 0.7, w), 0)
 	check(h < 0.15, "blend keeps the hands on the grips")
@@ -94,7 +88,11 @@ for _, w in ipairs({
 	end)(), h))
 end
 -- half lean with half-turned bars
-local h = measure(AnimPlayer.pose(clips, 0.3, { tuck = 0, brake = 0, leanR = 0.5, leanL = 0, wheelie = 0 }), clips.LeanRight.steer * 0.5)
+local h = measure(AnimPlayer.pose(clips, 0.3, { brake = 0, leanR = 0.5, leanL = 0 }), clips.LeanRight.steer * 0.5)
 print(string.format("half lean right: hands->grips %.3f", h))
 check(h < 0.25, "half lean keeps the hands near the grips")
+-- sitting upright (the pose the user asked for): the torso stays close to vertical on the bike
+local up = body(AnimPlayer.sample(clips.Ride, 0)).Torso.UpVector:Dot(chassis.UpVector)
+print(string.format("Ride torso upright: %.1f deg from the bike's up", math.deg(math.acos(math.clamp(up, -1, 1)))))
+check(up > math.cos(math.rad(8)), "Ride: sitting upright")
 print(if failures == 0 then "ALL CHECKS PASSED" else `{failures} CHECK(S) FAILED`)

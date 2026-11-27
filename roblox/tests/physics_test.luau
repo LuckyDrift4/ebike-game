@@ -11,6 +11,23 @@ local function check(name, ok, detail)
 	end
 end
 local deg = math.deg
+-- run fn with some Config values changed (the suite checks the settings that ship, and uses
+-- this to check the optional ones: crashes on, wheelie assist, air assist, Q stoppies)
+local function with(over, fn)
+	local old = {}
+	for k, v in pairs(over) do
+		old[k] = Config[k]
+		Config[k] = v
+	end
+	local ok, a, b = pcall(fn)
+	for k, v in pairs(old) do
+		Config[k] = v
+	end
+	if not ok then
+		error(a)
+	end
+	return a, b
+end
 local FWD = Vector3.new(0, 0, -1) -- the bike starts facing -Z
 
 local function new(opts)
@@ -147,7 +164,9 @@ do
 end
 do
 	local r = corner(45, 60, "Ice")
-	check("ice", r.slip > 0.2, string.format("tyre slip %.2f, crashed %s (%s)", r.slip, tostring(r.crashed), tostring(r.reason)))
+	check("ice (crashes off: slides, stays on)", r.slip > 0.2 and not r.crashed and math.abs(deg(r.lean)) < 60, string.format("tyre slip %.2f, lean %.0f, crashed %s (%s)", r.slip, deg(r.lean), tostring(r.crashed), tostring(r.reason)))
+	local rc = with({ Crashes = true }, function() return corner(45, 60, "Ice") end)
+	check("ice (crashes on)", rc.crashed, string.format("tyre slip %.2f, crashed %s (%s)", rc.slip, tostring(rc.crashed), tostring(rc.reason)))
 	local s = corner(30, 60, "Sand")
 	check("sand", not s.crashed, string.format("lean %.1f deg, tyre slip %.2f, crashed %s", deg(s.lean), s.slip, tostring(s.crashed)))
 end
@@ -218,7 +237,33 @@ do
 end
 
 -- 6. stoppie ---------------------------------------------------------------------------------------
+local function stoppie(v, input)
+	local phys, body = new({ velocity = FWD * v })
+	local rearUp, maxA = 0, 0
+	Sim.run(phys, body, 60, 4, input, function(_, o)
+		if not o.contact[2] then
+			rearUp += 1
+		end
+		maxA = math.max(maxA, o.stoppieAngle)
+	end)
+	return phys, rearUp, maxA
+end
 do
+	-- just S: the faster you were going, the bigger it is
+	local brakeOnly = function(_, o) return { driver = true, brake = if o.speed > 0.5 then 1 else 0 } end
+	local results = {}
+	for _, v in ipairs({ 12, 30, 45, 65 }) do
+		local p, up, a = stoppie(v, brakeOnly)
+		results[v] = { up = up, a = deg(a), crashed = p.crashed, speed = p.out.speed, down = p.out.contact[1] and p.out.contact[2] }
+	end
+	local r12, r30, r45, r65 = results[12], results[30], results[45], results[65]
+	check(
+		"stoppie on S grows with speed",
+		r12.up == 0 and r30.up > 0 and r65.a > r45.a and r45.a > r30.a and r65.a > 18 and not (r30.crashed or r45.crashed or r65.crashed) and r65.down,
+		string.format("rear up / highest: from 12 %d fr %.0f deg, 30 %d fr %.0f deg, 45 %d fr %.0f deg, 65 %d fr %.0f deg", r12.up, r12.a, r30.up, r30.a, r45.up, r45.a, r65.up, r65.a)
+	)
+end
+with({ StoppieOnBrake = false }, function()
 	local phys, body = new({ velocity = FWD * 45 })
 	local rearUp, maxA = 0, 0
 	Sim.run(phys, body, 60, 4, function(_, o) return { driver = true, brake = if o.speed > 0.5 then 1 else 0, leanForward = 1 } end, function(_, o)
@@ -227,8 +272,10 @@ do
 		end
 		maxA = math.max(maxA, o.stoppieAngle)
 	end)
-	check("stoppie", rearUp > 20 and not phys.crashed and phys.out.contact[2] and math.abs(phys.out.speed) < 1, string.format("rear up %d frames, max %.1f deg, speed now %.1f, both wheels down %s", rearUp, deg(maxA), phys.out.speed, tostring(phys.out.contact[1] and phys.out.contact[2])))
-end
+	check("stoppie (Q + brake)", rearUp > 20 and not phys.crashed and phys.out.contact[2] and math.abs(phys.out.speed) < 1, string.format("rear up %d frames, max %.1f deg, speed now %.1f, both wheels down %s", rearUp, deg(maxA), phys.out.speed, tostring(phys.out.contact[1] and phys.out.contact[2])))
+	local p2, up2 = stoppie(45, function(_, o) return { driver = true, brake = if o.speed > 0.5 then 1 else 0 } end)
+	check("no stoppie from S when it's off", up2 == 0, string.format("rear up %d frames", up2))
+end)
 
 -- 7. jump off a kicker ------------------------------------------------------------------------------
 local function kicker(w)
@@ -262,14 +309,20 @@ local function jump(input)
 	end)
 	return { phys = phys, air = maxAir, landed = landed, comp = maxComp, pitch = landPitch or 0 }
 end
-do
+with({ AirAssist = true }, function()
 	local r = jump(function(o) return { driver = true, throttle = cruise(55, o) } end)
 	local p = r.phys
 	check("jump", r.air > 0.2 and r.landed and not p.crashed and p.out.contact[1] and p.out.contact[2], string.format("airtime %.2f s, lands at %.1f deg, landing compression %.2f (travel %.2f), crashed %s", r.air, r.pitch, r.comp, Config.SuspensionTravel, tostring(p.crashed)))
 	-- hold E in the air: lands nose up (still rideable); Q: nose down
 	local e = jump(function(o) return { driver = true, throttle = cruise(55, o), leanBack = if o.airborne then 1 else 0 } end)
 	local q = jump(function(o) return { driver = true, throttle = cruise(55, o), leanForward = if o.airborne then 1 else 0 } end)
-	check("air control", e.pitch > r.pitch + 6 and q.pitch < r.pitch - 6 and not e.phys.crashed, string.format("lands at %.1f deg holding E, %.1f holding Q, %.1f with neither; crashed %s %s", e.pitch, q.pitch, r.pitch, tostring(e.phys.crashed), tostring(q.phys.crashed)))
+	check("air control (assisted)", e.pitch > r.pitch + 6 and q.pitch < r.pitch - 6 and not e.phys.crashed, string.format("lands at %.1f deg holding E, %.1f holding Q, %.1f with neither; crashed %s %s", e.pitch, q.pitch, r.pitch, tostring(e.phys.crashed), tostring(q.phys.crashed)))
+end)
+do
+	-- all manual in the air (as shipped): still lands it; E lifts the nose
+	local r = jump(function(o) return { driver = true, throttle = cruise(55, o) } end)
+	local e = jump(function(o) return { driver = true, throttle = cruise(55, o), leanBack = if o.airborne then 1 else 0 } end)
+	check("jump (manual air)", r.landed and not r.phys.crashed and e.pitch > r.pitch + 5, string.format("airtime %.2f s, lands at %.1f deg, %.1f holding E, crashed %s", r.air, r.pitch, e.pitch, tostring(r.phys.crashed)))
 end
 
 -- 8. hill climb ---------------------------------------------------------------------------------------
@@ -332,8 +385,13 @@ do
 			w.boxes = { { min = Vector3.new(-20, 0, -60), max = Vector3.new(20, 20, -40) } }
 		end,
 	})
-	Sim.run(phys, body, 60, 2, function(_, o) return { driver = true, throttle = 1 } end)
-	check("wall", phys.crashed and phys.crashReason == "hit", string.format("crashed %s (%s)", tostring(phys.crashed), tostring(phys.crashReason)))
+	Sim.run(phys, body, 60, 2, function(_, o) return { driver = true, throttle = 0 } end)
+	check("wall (crashes off: stops)", not phys.crashed and math.abs(phys.out.speed) < 5 and body.CFrame.UpVector.Y > 0.5, string.format("crashed %s (%s), speed %.1f, upright %.2f", tostring(phys.crashed), tostring(phys.crashReason), phys.out.speed, body.CFrame.UpVector.Y))
+	with({ Crashes = true }, function()
+		local p2, b2 = new({ velocity = FWD * 50, world = function(w) w.boxes = { { min = Vector3.new(-20, 0, -60), max = Vector3.new(20, 20, -40) } } end })
+		Sim.run(p2, b2, 60, 2, function() return { driver = true, throttle = 1 } end)
+		check("wall (crashes on)", p2.crashed and p2.crashReason == "hit", string.format("crashed %s (%s)", tostring(p2.crashed), tostring(p2.crashReason)))
+	end)
 end
 
 -- 12. rider gets off: rolls to a stop, stays up ---------------------------------------------------------
@@ -350,12 +408,12 @@ do
 	Sim.run(phys, body, 60, 3, function(t, o) return { driver = true, throttle = if t < 1.5 then cruise(45, o) else 0, brake = if t >= 1.5 and o.speed > 0.5 then 1 else 0, steer = if t > 0.3 then 1 else 0 } end)
 	check("brake in a corner", not phys.crashed and math.abs(phys.out.speed) < 2, string.format("crashed %s (%s), speed %.1f", tostring(phys.crashed), tostring(phys.crashReason), phys.out.speed))
 	-- full throttle round a corner on dirt: the rear steps out
-	local p2, b2 = new({ velocity = FWD * 30, world = function(w) w.material = function() return "Mud" end end })
+	local p2, b2 = new({ velocity = FWD * 30, world = function(w) w.material = function() return "Ice" end end })
 	local rearSlip = 0
 	Sim.run(p2, b2, 60, 3, function(t) return { driver = true, throttle = 1, steer = if t > 0.3 then 1 else 0 } end, function(_, o)
 		rearSlip = math.max(rearSlip, o.slip[2])
 	end)
-	check("power slide on mud", rearSlip > 0.05, string.format("rear slip up to %.2f, crashed %s (%s)", rearSlip, tostring(p2.crashed), tostring(p2.crashReason)))
+	check("power slide on ice", rearSlip > 0.05 and not p2.crashed, string.format("rear slip up to %.2f, crashed %s (%s)", rearSlip, tostring(p2.crashed), tostring(p2.crashReason)))
 	-- steer in a wheelie
 	local p3, b3 = new({ velocity = FWD * 22 })
 	local yaw0 = b3.CFrame.LookVector
@@ -382,7 +440,12 @@ do
 	-- reverse
 	local p7, b7 = new({})
 	Sim.run(p7, b7, 60, 3, function() return { driver = true, brake = 1 } end)
-	check("reverse", p7.out.speed < -Config.ReverseSpeed * 0.7 and not p7.crashed, string.format("speed %.1f (ReverseSpeed %d)", p7.out.speed, Config.ReverseSpeed))
+	check("no reverse (S at a stop)", p7.out.speed > -0.5 and not p7.crashed, string.format("speed %.1f", p7.out.speed))
+	with({ ReverseSpeed = 8 }, function()
+		local p9, b9 = new({})
+		Sim.run(p9, b9, 60, 3, function() return { driver = true, brake = 1 } end)
+		check("reverse when it's on", p9.out.speed < -5.5, string.format("speed %.1f", p9.out.speed))
+	end)
 	-- a crashed bike with no rider falls over
 	local p8, b8 = new({ velocity = FWD * 20 })
 	p8:crash("test")

@@ -11,8 +11,9 @@ Builds (in blender/anim/ride_anims.blend):
     the foot steps, and a look-at target
   * Damped Track constraints: arms -> grips, legs -> steps, head -> look-at
   * keyframed torso / look-at / steering for each clip on one timeline:
-      Ride (loop) | Tuck | Brake | LeanRight | LeanLeft | Wheelie | Stand | Stoppie
-      | HangRight | HangLeft
+      Ride (loop) | Brake | LeanRight | LeanLeft
+    The rider always sits upright on the seat (the pose the user asked for), feet on the
+    pegs, hands on the grips; the bike's own lean / wheelie / stoppie does the rest.
 The constrained pose is sampled ("visual keying") and written to
 roblox/anim/ride_anims.json as Roblox joint rotations, which RideKit plays and
 build_ridekit.py turns into Animation Editor KeyframeSequences.
@@ -291,46 +292,16 @@ def best_lean(lean0, steer_angle, roll=0.0, twist0=0.0, lean_range=(-0.6, 1.0), 
     return best[1], best[2]
 
 
-def best_stand(lean0, steer_angle=0.0, f_range=(-0.6, 1.6), u_range=(0.0, 2.2), lean_range=(-0.4, 1.3), w_lean=0.08):
-    """Standing on the pegs: R6 legs can't bend, so stand where both legs are exactly
-    leg's length from the pegs (feet on them) and both hands reach the grips. Search the
-    torso's lean and how far it moves forward / up off the seat."""
-    best = None
-    for i in range(int((lean_range[1] - lean_range[0]) / 0.02) + 1):
-        lean = lean_range[0] + i * 0.02
-        q = torso_rotation(lean)
-        for j in range(int((f_range[1] - f_range[0]) / 0.05) + 1):
-            f = f_range[0] + j * 0.05
-            for k in range(int((u_range[1] - u_range[0]) / 0.05) + 1):
-                u = u_range[0] + k * 0.05
-                t = stand_offset(f, u)
-                sp = shoulder_points(q, t)
-                g = aim_points(steer_angle, q, t)
-                eR = (g["gripR"] - sp["Right Arm"]).length - HAND_REACH
-                eL = (g["gripL"] - sp["Left Arm"]).length - HAND_REACH
-                fR = (Vector(REF["pegR"]) - sp["Right Leg"]).length - LEG_REACH
-                fL = (Vector(REF["pegL"]) - sp["Left Leg"]).length - LEG_REACH
-                cost = eR * eR + eL * eL + fR * fR + fL * fL + w_lean * (lean - lean0) ** 2
-                if best is None or cost < best[0]:
-                    best = (cost, lean, f, u)
-    return best[1], best[2], best[3]
-
-
 # --- clips ----------------------------------------------------------------------------
 STEER_ANIM = 0.24  # bars turned this much (rad) in the lean clips (matches RideKit MaxSteerAngle)
 CLIPS = [
     # name, start frame, length (frames), loop
     ("Ride", 1, 60, True),
-    ("Tuck", 81, 30, True),
-    ("Brake", 131, 30, True),
-    ("LeanRight", 181, 30, True),
-    ("LeanLeft", 231, 30, True),
-    ("Wheelie", 281, 30, True),
-    ("Stand", 331, 30, True),
-    ("Stoppie", 381, 30, True),
-    ("HangRight", 431, 30, True),
-    ("HangLeft", 481, 30, True),
+    ("Brake", 81, 30, True),
+    ("LeanRight", 131, 30, True),
+    ("LeanLeft", 181, 30, True),
 ]
+UPRIGHT = 0.0  # torso lean while sitting (0 = straight up); RideKit's Config.Pose.TorsoLean
 
 
 def key_torso(arm, frame, q, t=None):
@@ -374,76 +345,33 @@ def animate(arm, steer, look, targets):
             if name in targets:
                 key_obj(targets[name], frame, loc=pt(p))
 
-    # Ride: relaxed riding, gentle breathing and a look around (loop)
-    lean, tw = best_lean(0.32, 0.0)
+    # Ride: sat upright on the seat, gentle breathing and a look around (loop)
+    lean, tw = best_lean(UPRIGHT, 0.0, w_lean=0.3)
     report["Ride"] = (lean, tw)
     s, n = CLIPS[0][1], CLIPS[0][2]
     for f, (dl, look_side, look_h) in zip((0, 15, 30, 45, 60),
-                                           ((0, 0, 0.6), (0.025, 0.8, 0.5), (0, 0, 0.7), (0.025, -0.8, 0.5), (0, 0, 0.6))):
-        l2, t2 = best_lean(lean + dl, 0.0)
+                                           ((0, 0, 0.6), (0.02, 0.8, 0.5), (0, 0, 0.7), (0.02, -0.8, 0.5), (0, 0, 0.6))):
+        l2, t2 = best_lean(lean + dl, 0.0, w_lean=0.3)
         pose_at(s + f, l2, 0, t2, 0.0)
         key_obj(look, s + f, loc=look_at(side=look_side, height=look_h))
 
-    # Tuck: head down behind the bars, eyes up (accelerating)
-    lean, tw = best_lean(0.52, 0.0)
-    report["Tuck"] = (lean, tw)
-    s = CLIPS[1][1]
-    for f in (0, 30):
-        pose_at(s + f, lean, 0, tw, 0.0)
-        key_obj(look, s + f, loc=look_at(height=1.2))
-
-    # Brake: weight back, arms braced, eyes ahead
-    lean, tw = best_lean(0.05, 0.0)
+    # Brake: still sat, braced on the bars, a touch back, eyes ahead
+    lean, tw = best_lean(UPRIGHT - 0.08, 0.0, w_lean=0.3)
     report["Brake"] = (lean, tw)
-    s = CLIPS[2][1]
+    s = CLIPS[1][1]
     for f in (0, 30):
         pose_at(s + f, lean, 0, tw, 0.0)
         key_obj(look, s + f, loc=look_at(height=0.2))
 
-    # Leans: bars turned, body into the corner, looking through the turn
-    for idx, sign in ((3, 1), (4, -1)):
-        lean, tw = best_lean(0.40, sign * STEER_ANIM, roll=sign * 0.2, twist0=sign * 0.12, w_lean=0.05)
+    # Bars turned: the body stays with the bike (no hanging off), the shoulders follow the
+    # bars just enough for the hands to stay on the grips, and the head looks into the turn
+    for idx, sign in ((2, 1), (3, -1)):
+        lean, tw = best_lean(UPRIGHT, sign * STEER_ANIM, twist0=sign * 0.1, w_lean=0.3)
         report[CLIPS[idx][0]] = (lean, tw)
         s = CLIPS[idx][1]
         for f in (0, 30):
-            pose_at(s + f, lean, sign * 0.2, tw, sign * STEER_ANIM)
-            key_obj(look, s + f, loc=look_at(ahead=9.0, side=sign * 5.0, height=0.2))
-
-    # Wheelie: sat back, arms straight, eyes level (the bike pitches ~35-40 degrees up)
-    lean, tw = best_lean(-0.25, 0.0, lean_range=(-0.8, 0.6))
-    report["Wheelie"] = (lean, tw)
-    s = CLIPS[5][1]
-    for f in (0, 30):
-        pose_at(s + f, lean, 0, tw, 0.0)
-        key_obj(look, s + f, loc=look_at(height=-8.0))  # level once the front is up
-
-    # Stand: up on the pegs in the attack position (jumps, bumps, Q): knees can't bend on
-    # R6, so the hips go where the legs reach the pegs exactly; a little bob
-    lean, fw, upw = best_stand(0.75)
-    report["Stand"] = (lean, fw, upw)
-    s = CLIPS[6][1]
-    for f, du in ((0, 0.0), (15, -0.06), (30, 0.0)):
-        l2, f2, u2 = best_stand(lean, f_range=(fw - 0.3, fw + 0.3), u_range=(upw + du - 0.15, upw + du + 0.15), lean_range=(lean - 0.2, lean + 0.2), w_lean=0.3)
-        pose_at(s + f, l2, 0, 0.0, 0.0, stand_offset(f2, u2))
-        key_obj(look, s + f, loc=look_at(height=0.9))
-    KEY_FRAMES["Stand"] = (0, 15, 30)
-
-    # Stoppie: standing, pushing back against the bars as the rear lifts, eyes down the road
-    lean, fw, upw = best_stand(0.25, f_range=(-0.8, 1.0))
-    report["Stoppie"] = (lean, fw, upw)
-    s = CLIPS[7][1]
-    for f in (0, 30):
-        pose_at(s + f, lean, 0, 0.0, 0.0, stand_offset(fw, upw))
-        key_obj(look, s + f, loc=look_at(height=4.0))  # the bike's nose is down: look up to see ahead
-
-    # Hang: the bike is leaned over; body into the corner, inside shoulder low, head turned in
-    for idx, sign in ((8, 1), (9, -1)):
-        lean, tw = best_lean(0.42, 0.0, roll=sign * 0.3, twist0=sign * 0.14, w_lean=0.05)
-        report[CLIPS[idx][0]] = (lean, tw)
-        s = CLIPS[idx][1]
-        for f in (0, 30):
-            pose_at(s + f, lean, sign * 0.3, tw, 0.0)
-            key_obj(look, s + f, loc=look_at(ahead=10.0, side=sign * 6.5, height=-0.8))
+            pose_at(s + f, lean, 0, tw, sign * STEER_ANIM)
+            key_obj(look, s + f, loc=look_at(ahead=9.0, side=sign * 5.0, height=0.3))
 
     for ob in [arm, steer, look] + list(targets.values()):
         ad = ob.animation_data
@@ -501,7 +429,7 @@ def sample_visual(arm, frame):
 def export(arm):
     clips = {}
     for name, start, length, loop in CLIPS:
-        step = 3 if name == "Ride" else (15 if name == "Stand" else length)
+        step = 3 if name == "Ride" else length
         keys = []
         for f in range(0, length + 1, step):
             pose, pos = sample_visual(arm, start + f)
@@ -644,8 +572,8 @@ def preview(arm, steer, look, objs):
         root.keyframe_insert("rotation_quaternion", frame=frame)
 
     for name, start, length, loop in CLIPS:
-        roll = {"LeanRight": -0.25, "LeanLeft": 0.25, "HangRight": -0.6, "HangLeft": 0.6}.get(name, 0.0)
-        pitch = {"Wheelie": 0.65, "Stoppie": -0.3}.get(name, 0.0)
+        roll = {"LeanRight": -0.25, "LeanLeft": 0.25}.get(name, 0.0)
+        pitch = 0.0
         pose_root(start, roll, pitch)
         pose_root(start + length, roll, pitch)
     # ground + light + camera

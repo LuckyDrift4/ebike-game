@@ -74,15 +74,9 @@ end
 
 -- clips layered over Ride, in this order (later ones win), and the weight that drives each
 AnimPlayer.LAYERS = {
-	{ "Tuck", "tuck" }, -- head down on the throttle
-	{ "Brake", "brake" }, -- weight back on the brakes
-	{ "Stand", "stand" }, -- up on the pegs: jumps, bumps, Q
-	{ "HangRight", "hangR" }, -- body into the corner as the bike leans
-	{ "HangLeft", "hangL" },
-	{ "LeanRight", "leanR" }, -- bars turned (follows the steering)
+	{ "Brake", "brake" }, -- braced on the bars when braking
+	{ "LeanRight", "leanR" }, -- bars turned (hands follow the grips, head looks into the turn)
 	{ "LeanLeft", "leanL" },
-	{ "Wheelie", "wheelie" }, -- sat back, arms straight
-	{ "Stoppie", "stoppie" }, -- weight over the front
 }
 
 --[[ Full riding pose.

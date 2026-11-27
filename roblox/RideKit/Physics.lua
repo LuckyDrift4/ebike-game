@@ -110,6 +110,7 @@ function Physics:reset()
 	self.aimI = 0
 	self.stoppieOn = false
 	self.aimS = 0
+	self.stoppieMax = 0
 	self.sliding = { false, false }
 	self.lastHs = nil
 	self.impact = 0
@@ -226,11 +227,19 @@ function Physics:probe(i: number)
 	end
 
 	-- fanned around the rim: kerbs, steps and lips meet the tyre before the axle is over them
+	-- (but a wall - anything taller than the axle - can't be climbed: the wheel guard hits it)
 	local O = E + up * travel
+	local axle = E + up * (travel * 0.5)
 	for _, th in ipairs(FAN) do
 		local s, co = math.abs(math.sin(th)), math.cos(th)
 		local d = -up * co + fwd * math.sin(th)
 		local h = workspace:Raycast(O, d * math.min(R / s, travel + R), self.params)
+		if h and h.Normal.Y < 0.5 then
+			local ahead = fwd * (if th > 0 then 1 else -1)
+			if workspace:Raycast(axle, ahead * (R + 0.15), self.params) then
+				h = nil
+			end
+		end
 		if h then
 			local t = (h.Position - O).Magnitude
 			local disc = R * R - t * t * s * s
@@ -269,7 +278,15 @@ local function gripOf(hit, cfg): number
 end
 
 function Physics:crash(reason: string)
-	if not self.crashed and self.cfg.Crashes then
+	local cfg = self.cfg
+	-- with Crashes off, only looping it (or ending up on its back) throws the rider off;
+	-- a bike with nobody on it ("off", "rider") always falls over
+	local allowed = cfg.Crashes
+		or reason == "off"
+		or reason == "rider"
+		or reason == "test"
+		or (cfg.LoopCrash and (reason == "loop" or reason == "flip"))
+	if not self.crashed and allowed then
 		self.crashed = true
 		self.crashReason = reason
 		self.fallSide = if (self.out.lean or 0) >= 0 then 1 else -1
@@ -466,20 +483,27 @@ function Physics:step(dt: number, input)
 		self.wheelieOn = false
 	end
 
-	-- stoppie: weight forward and brake, pivot on the front tyre
-	if control and frontDown and ((forward > 0 and brake > 0) or self.stoppieOn) and not self.wheelieOn then
+	-- stoppie: brake at speed (or Q + brake) and the bike pivots on the front tyre; the
+	-- faster it was going when the braking started, the higher the rear goes
+	local asking = brake > 0.3 and (forward > 0 or cfg.StoppieOnBrake)
+	if control and frontDown and (asking or self.stoppieOn) and not self.wheelieOn then
 		local gn = con[1].gn
 		thetaS = -math.asin(clamp(fwd:Dot(gn), -1, 1)) -- rear up from the ground under the front tyre
 		local r = self.com - con[1].P
 		local toBalF = math.pi / 2 - math.atan2(r:Dot(Y), -r:Dot(levelFwd))
 		local Ic = Ip + m * r:Dot(levelFwd) ^ 2
-		if not self.stoppieOn and forward > 0 and brake > 0 and speed > cfg.StoppieMinSpeed then
+		local flat = gn.Y > 0.97 and fwd.Y > -0.25 -- not down a steep hill (it would go over the bars)
+		if not self.stoppieOn and asking and speed > cfg.StoppieMinSpeed and math.abs(lean) < 0.3 and flat then
 			self.stoppieOn = true
 			self.aimS = math.max(thetaS, 0)
+			local full = math.max(cfg.StoppieFullSpeed - cfg.StoppieMinSpeed, 1)
+			self.stoppieMax = math.rad(cfg.StoppieAngle) * clamp((speed - cfg.StoppieMinSpeed * 0.5) / full, 0.15, 1)
 		end
 		if self.stoppieOn then
-			local holding = forward > 0 and brake > 0 and speed > 2
-			local cap = math.min(math.rad(cfg.StoppieAngle), thetaS + toBalF - math.rad(6))
+			local holding = asking and speed > 2
+			-- as it slows to a stop the rear comes back down
+			local slowing = clamp((speed - 2) / math.max(cfg.StoppieFullSpeed * 0.35, 1), 0, 1)
+			local cap = math.min(self.stoppieMax * math.sqrt(slowing), thetaS + toBalF - math.rad(6))
 			local rate = if holding then cfg.StoppieAimUp else -cfg.StoppieAimDown
 			self.aimS = clamp(self.aimS + rate * h, 0, math.max(cap, 0))
 			local wn = cfg.WheelieControl
@@ -491,7 +515,7 @@ function Physics:step(dt: number, input)
 			-- 1. the front brake lifts the rear (helped by a shove from the rider to get it up)
 			local lift = clamp((0.6 - thetaS / math.max(cap, 0.1)) / 0.4, 0, 1) * m * g * cfg.StoppieLift
 			local per = m * H * cfg.FrontBrake + lift
-			local b = clamp(need / per, 0, math.max(brake, 0.3))
+			local b = clamp(need / per, 0.3 * brake, math.max(brake, 0.3)) -- always some braking
 			frontBrakeUse = b
 			-- 2. body weight forward / back for the rest
 			local shift = clamp(need - b * per, -m * g * cfg.RiderShift, m * g * cfg.RiderShift)
@@ -529,19 +553,23 @@ function Physics:step(dt: number, input)
 			aim += (slope + 0.06 - aim) * near
 		end
 		aim += cfg.AirLean * (back - forward)
-		local wn = if cfg.AirAssist then cfg.AirControl else 0
-		local alpha = wn * wn * (aim - pitch) - 2 * wn * pitchRate * 0.8
-		alpha = clamp(alpha, -cfg.AirPitch, cfg.AirPitch)
+		local wn = cfg.AirControl
+		local alpha = clamp(wn * wn * (aim - pitch) - 2 * wn * pitchRate * 0.8, -cfg.AirPitch, cfg.AirPitch)
 		if not cfg.AirAssist then
+			-- all manual: the bike keeps its spin; E pulls the nose up
 			alpha = cfg.AirPitch * (back - forward)
 		end
 		alpha += cfg.AirThrottle * (throttle - brake)
 		riderTorque = Ip * alpha
-		self:spin(Y, (-steerIn * cfg.AirYaw - self.w:Dot(Y)) * (1 - math.exp(-4 * h)))
+		if cfg.AirAssist then
+			self:spin(Y, (-steerIn * cfg.AirYaw - self.w:Dot(Y)) * (1 - math.exp(-4 * h)))
+		elseif steerIn ~= 0 then
+			self:spin(Y, -steerIn * cfg.AirYaw * 2 * h)
+		end
 	elseif control and not self.wheelieOn and not self.stoppieOn then
 		-- weight forward / back while riding
 		riderTorque = m * g * cfg.RiderShift * (back - forward) * 0.5
-		if frontDown ~= rearDown and cfg.AirAssist and math.abs(speed) > 8 then
+		if frontDown ~= rearDown and cfg.LipHold and math.abs(speed) > 8 then
 			-- one wheel went light (a lip, a bump, landing on one wheel): the rider holds the
 			-- bike's attitude and lets it settle back onto the ground gently
 			local k = con[if rearDown then 2 else 1]
@@ -589,7 +617,7 @@ function Physics:step(dt: number, input)
 			local want = -speed * math.tan(self.steerAngle * cfg.WheelieSteer) / L
 			self:spin(n, (want - self.w:Dot(n)) * (1 - math.exp(-8 * h)))
 		end
-	elseif not self.crashed and airborne and control then
+	elseif not self.crashed and airborne and control and cfg.AirAssist then
 		-- level the bike in the air
 		self:spin(rollAxis, (-lean * 2 - self.w:Dot(rollAxis)) * (1 - math.exp(-3 * h)))
 	end
@@ -603,7 +631,7 @@ function Physics:step(dt: number, input)
 	if throttle > 0 then
 		local A, drag = self:motor(speed)
 		drive = throttle * A - drag
-	elseif brake > 0 and speed < 1.5 and driver and not self.stoppieOn then
+	elseif brake > 0 and speed < 1.5 and driver and not self.stoppieOn and cfg.ReverseSpeed > 0 then
 		drive = -brake * cfg.Acceleration * 0.35 * clamp(1 + math.min(speed, 0) / cfg.ReverseSpeed, 0, 1)
 		brake = 0
 	end
@@ -640,7 +668,8 @@ function Physics:step(dt: number, input)
 		end
 	end
 	local Ir = 1 / rollAxis:Dot(self:invI(rollAxis)) -- inertia felt by a torque about the lean axis
-	local rollMax = cfg.RollTorque * m * g * h
+	-- with crashes off the rider always saves it: far more strength once it's leaned right over
+	local rollMax = cfg.RollTorque * m * g * h * (if not cfg.Crashes and math.abs(lean) > 0.9 then 3 else 1)
 	local rollAcc = 0
 	for _ = 1, 8 do
 		for i = 1, 2 do

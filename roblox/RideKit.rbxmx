@@ -14,7 +14,7 @@ local Config = {
 	MaxSpeed = 75,
 	Acceleration = 55, -- pull at low speed (studs/s²; gravity is 196)
 	PowerBand = 0.4, -- full pull up to this fraction of MaxSpeed
-	ReverseSpeed = 8, -- hold S when stopped
+	ReverseSpeed = 0, -- hold S when stopped to back up this fast (0 = no reverse)
 	CoastDecel = 4, -- motor braking with the throttle closed
 	RollingDrag = 1.5,
 
@@ -23,7 +23,7 @@ local Config = {
 	RearBrake = 55,
 
 	-- tyres
-	Grip = 1.0, -- times the surface grip: asphalt 1.05, concrete 1, grass 0.7, dirt 0.65, sand 0.5, mud 0.4, ice 0.15
+	Grip = 1.2, -- times the surface grip: asphalt 1.05, concrete 1, grass 0.7, dirt 0.65, sand 0.5, mud 0.4, ice 0.15
 	SlideGrip = 0.8, -- grip left once a tyre slides (lower = longer drifts)
 	LateralStiffness = 0.9, -- how firmly a gripping tyre stops sideways sliding (0..1)
 	TyreProfile = 0.35, -- radius of the tyre's round cross-section (a leaned bike rolls on its shoulder)
@@ -48,14 +48,13 @@ local Config = {
 	ComHeight = 2.0, -- centre of mass above the axles, in wheel radii (bike + rider: about hip height)
 	ComBack = 0.04, -- centre of mass toward the rear wheel, fraction of the wheelbase
 
-	-- wheelie: hold E (gamepad X) with the throttle on. Throttle raises the front, off lowers
-	-- it, S is the rear brake. The balance bar shows how close you are to the balance point.
+	-- wheelie: hold E (gamepad X, the Wheelie button on mobile) with the throttle on while
+	-- moving. Throttle raises the front, off lowers it, S is the rear brake. Too high and you loop.
 	WheelieKeys = { Enum.KeyCode.E, Enum.KeyCode.ButtonX },
 	WheelieMinSpeed = 5,
-	WheelieAssist = true, -- true: covers the rear brake so you never go past the balance point
-	-- false: hold the throttle too long and you loop it
+	WheelieAssist = false, -- true: covers the rear brake so you never go past the balance point
 	WheelieSweetSpot = 4, -- degrees below the balance point the assist holds you at
-	WheelieAimUp = 1.1, -- how fast the front rises with the throttle on (rad/s)
+	WheelieAimUp = 0.8, -- how fast the front rises with the throttle on (rad/s)
 	WheelieAimDown = 0.55, -- how fast it comes down with the throttle off
 	WheelieLift = 2.6, -- how hard the motor lifts the front
 	RiderShift = 0.45, -- how far the rider moves their weight back or forward (studs)
@@ -63,17 +62,20 @@ local Config = {
 	WheelieSteer = 0.5, -- steering in a wheelie, times normal (you lean it round)
 	LoopOutAngle = 22, -- degrees past the balance point before it's gone
 
-	-- stoppie: hold Q (gamepad Y) and brake. Q on its own: stand up / weight forward
-	StoppieKeys = { Enum.KeyCode.Q, Enum.KeyCode.ButtonY },
-	StoppieMinSpeed = 14,
-	StoppieAngle = 20, -- highest the rear wheel goes (degrees)
-	StoppieAimUp = 1.0, -- how fast the rear rises while braking (rad/s)
+	-- stoppie: brake (S) at speed and the rear wheel lifts. A little at low speed, more the
+	-- faster you were going, up to StoppieAngle at StoppieFullSpeed
+	StoppieOnBrake = true, -- false: no stoppies from braking
+	StoppieMinSpeed = 18, -- slower than this, braking is just braking
+	StoppieFullSpeed = 60,
+	StoppieAngle = 30, -- biggest stoppie (degrees)
+	StoppieAimUp = 1.8, -- how fast the rear rises while braking (rad/s)
 	StoppieAimDown = 1.4, -- how fast it comes down when you let go
 	StoppieLift = 2.0, -- the rider's shove that gets the rear up
 
-	-- in the air the rider lines the bike up with the way it's flying; E / Q lift / drop the
-	-- nose, throttle / brake spin the rear wheel up / stop it, A / D turn it a little
-	AirAssist = true, -- false: no lining up (nor holding it steady off lips), E / Q rotate it directly
+	-- in the air: E tips the nose up, the throttle spins the rear wheel up (nose up) and the
+	-- brake stops it (nose down), A / D turn it a little
+	AirAssist = false, -- true: the rider lines the bike up with the way it's flying
+	LipHold = true, -- the rider holds the bike steady when one wheel leaves the ground (jump lips)
 	AirControl = 6, -- how quickly the rider lines it up (rad/s)
 	AirLean = 0.6, -- how far E / Q tip it from the flight path (rad)
 	AirPitch = 14, -- strongest rotation the rider can make (rad/s²)
@@ -81,7 +83,8 @@ local Config = {
 	AirYaw = 1.5,
 
 	-- crashes: you come off and the bike falls over
-	Crashes = true,
+	Crashes = false, -- true: also leaning too far, losing the front, hitting walls, over the bars
+	LoopCrash = true, -- looping a wheelie (or landing upside down) throws you off
 	CrashLean = 72, -- lean that can't be saved
 	CrashImpact = 30, -- speed lost at once (a wall) that throws you off
 	DismountCrashSpeed = 25, -- jump off faster than this and the bike falls
@@ -95,10 +98,7 @@ local Config = {
 
 	-- rider animation (keyframed in Blender: blender/anim/ride_anims.blend)
 	AnimBlendSpeed = 8, -- how fast the rider moves between the clips
-	Pose = { TorsoLean = 0.35 }, -- forward lean the seat position is fitted for (matches the Blender clips)
-
-	-- on-screen speed, wheelie timer and balance bar for the rider
-	ShowHud = true,
+	Pose = { TorsoLean = 0.0 }, -- sitting upright: the seat position is fitted for this (matches the Blender clips)
 }
 
 return Config
@@ -294,8 +294,9 @@ function Rig.riderSetup(d, cfg)
 	end
 	-- R6 rider: HumanoidRootPart = torso centre, shoulders 0.5 above it (arms reach 1.5 to the
 	-- hands, which sit 0.5 outboard), hips 1 below it (legs reach 2 to the feet, 0.5 inboard).
-	-- Search the seat position (forward along the seat, hip height) where a natural forward
-	-- lean puts the hands on the grips and the feet near the pegs.
+	-- Search the seat position (forward along the seat, hip height) where the riding posture
+	-- (Pose.TorsoLean; 0 = sitting upright) puts the hands on the grips and the feet near the
+	-- pegs, with the hips on the seat.
 	local lean = cfg.Pose.TorsoLean
 	local sL, cL = math.sin(lean), math.cos(lean)
 	local aimR, aimL = gripR - right * 0.5, gripL + right * 0.5
@@ -323,6 +324,7 @@ function Rig.riderSetup(d, cfg)
 			local cost = 4 * (eR * eR + eL * eL) + leg(lR) + leg(lL)
 				+ 2 * math.max(0, f - seatHalfLen) ^ 2 -- prefer sitting on the seat
 				+ 2 * math.max(0, seatTop - 0.1 - hipY) ^ 2 -- and not sunk into it
+				+ 3 * (hipY - seatTop) ^ 2 -- sat right on it, not hovering
 			if cost < best then
 				best, bestF, bestHip = cost, f, hipY
 			end
@@ -767,6 +769,7 @@ function Physics:reset()
 	self.aimI = 0
 	self.stoppieOn = false
 	self.aimS = 0
+	self.stoppieMax = 0
 	self.sliding = { false, false }
 	self.lastHs = nil
 	self.impact = 0
@@ -883,11 +886,19 @@ function Physics:probe(i: number)
 	end
 
 	-- fanned around the rim: kerbs, steps and lips meet the tyre before the axle is over them
+	-- (but a wall - anything taller than the axle - can't be climbed: the wheel guard hits it)
 	local O = E + up * travel
+	local axle = E + up * (travel * 0.5)
 	for _, th in ipairs(FAN) do
 		local s, co = math.abs(math.sin(th)), math.cos(th)
 		local d = -up * co + fwd * math.sin(th)
 		local h = workspace:Raycast(O, d * math.min(R / s, travel + R), self.params)
+		if h and h.Normal.Y < 0.5 then
+			local ahead = fwd * (if th > 0 then 1 else -1)
+			if workspace:Raycast(axle, ahead * (R + 0.15), self.params) then
+				h = nil
+			end
+		end
 		if h then
 			local t = (h.Position - O).Magnitude
 			local disc = R * R - t * t * s * s
@@ -926,7 +937,15 @@ local function gripOf(hit, cfg): number
 end
 
 function Physics:crash(reason: string)
-	if not self.crashed and self.cfg.Crashes then
+	local cfg = self.cfg
+	-- with Crashes off, only looping it (or ending up on its back) throws the rider off;
+	-- a bike with nobody on it ("off", "rider") always falls over
+	local allowed = cfg.Crashes
+		or reason == "off"
+		or reason == "rider"
+		or reason == "test"
+		or (cfg.LoopCrash and (reason == "loop" or reason == "flip"))
+	if not self.crashed and allowed then
 		self.crashed = true
 		self.crashReason = reason
 		self.fallSide = if (self.out.lean or 0) >= 0 then 1 else -1
@@ -1123,20 +1142,27 @@ function Physics:step(dt: number, input)
 		self.wheelieOn = false
 	end
 
-	-- stoppie: weight forward and brake, pivot on the front tyre
-	if control and frontDown and ((forward > 0 and brake > 0) or self.stoppieOn) and not self.wheelieOn then
+	-- stoppie: brake at speed (or Q + brake) and the bike pivots on the front tyre; the
+	-- faster it was going when the braking started, the higher the rear goes
+	local asking = brake > 0.3 and (forward > 0 or cfg.StoppieOnBrake)
+	if control and frontDown and (asking or self.stoppieOn) and not self.wheelieOn then
 		local gn = con[1].gn
 		thetaS = -math.asin(clamp(fwd:Dot(gn), -1, 1)) -- rear up from the ground under the front tyre
 		local r = self.com - con[1].P
 		local toBalF = math.pi / 2 - math.atan2(r:Dot(Y), -r:Dot(levelFwd))
 		local Ic = Ip + m * r:Dot(levelFwd) ^ 2
-		if not self.stoppieOn and forward > 0 and brake > 0 and speed > cfg.StoppieMinSpeed then
+		local flat = gn.Y > 0.97 and fwd.Y > -0.25 -- not down a steep hill (it would go over the bars)
+		if not self.stoppieOn and asking and speed > cfg.StoppieMinSpeed and math.abs(lean) < 0.3 and flat then
 			self.stoppieOn = true
 			self.aimS = math.max(thetaS, 0)
+			local full = math.max(cfg.StoppieFullSpeed - cfg.StoppieMinSpeed, 1)
+			self.stoppieMax = math.rad(cfg.StoppieAngle) * clamp((speed - cfg.StoppieMinSpeed * 0.5) / full, 0.15, 1)
 		end
 		if self.stoppieOn then
-			local holding = forward > 0 and brake > 0 and speed > 2
-			local cap = math.min(math.rad(cfg.StoppieAngle), thetaS + toBalF - math.rad(6))
+			local holding = asking and speed > 2
+			-- as it slows to a stop the rear comes back down
+			local slowing = clamp((speed - 2) / math.max(cfg.StoppieFullSpeed * 0.35, 1), 0, 1)
+			local cap = math.min(self.stoppieMax * math.sqrt(slowing), thetaS + toBalF - math.rad(6))
 			local rate = if holding then cfg.StoppieAimUp else -cfg.StoppieAimDown
 			self.aimS = clamp(self.aimS + rate * h, 0, math.max(cap, 0))
 			local wn = cfg.WheelieControl
@@ -1148,7 +1174,7 @@ function Physics:step(dt: number, input)
 			-- 1. the front brake lifts the rear (helped by a shove from the rider to get it up)
 			local lift = clamp((0.6 - thetaS / math.max(cap, 0.1)) / 0.4, 0, 1) * m * g * cfg.StoppieLift
 			local per = m * H * cfg.FrontBrake + lift
-			local b = clamp(need / per, 0, math.max(brake, 0.3))
+			local b = clamp(need / per, 0.3 * brake, math.max(brake, 0.3)) -- always some braking
 			frontBrakeUse = b
 			-- 2. body weight forward / back for the rest
 			local shift = clamp(need - b * per, -m * g * cfg.RiderShift, m * g * cfg.RiderShift)
@@ -1186,19 +1212,23 @@ function Physics:step(dt: number, input)
 			aim += (slope + 0.06 - aim) * near
 		end
 		aim += cfg.AirLean * (back - forward)
-		local wn = if cfg.AirAssist then cfg.AirControl else 0
-		local alpha = wn * wn * (aim - pitch) - 2 * wn * pitchRate * 0.8
-		alpha = clamp(alpha, -cfg.AirPitch, cfg.AirPitch)
+		local wn = cfg.AirControl
+		local alpha = clamp(wn * wn * (aim - pitch) - 2 * wn * pitchRate * 0.8, -cfg.AirPitch, cfg.AirPitch)
 		if not cfg.AirAssist then
+			-- all manual: the bike keeps its spin; E pulls the nose up
 			alpha = cfg.AirPitch * (back - forward)
 		end
 		alpha += cfg.AirThrottle * (throttle - brake)
 		riderTorque = Ip * alpha
-		self:spin(Y, (-steerIn * cfg.AirYaw - self.w:Dot(Y)) * (1 - math.exp(-4 * h)))
+		if cfg.AirAssist then
+			self:spin(Y, (-steerIn * cfg.AirYaw - self.w:Dot(Y)) * (1 - math.exp(-4 * h)))
+		elseif steerIn ~= 0 then
+			self:spin(Y, -steerIn * cfg.AirYaw * 2 * h)
+		end
 	elseif control and not self.wheelieOn and not self.stoppieOn then
 		-- weight forward / back while riding
 		riderTorque = m * g * cfg.RiderShift * (back - forward) * 0.5
-		if frontDown ~= rearDown and cfg.AirAssist and math.abs(speed) > 8 then
+		if frontDown ~= rearDown and cfg.LipHold and math.abs(speed) > 8 then
 			-- one wheel went light (a lip, a bump, landing on one wheel): the rider holds the
 			-- bike's attitude and lets it settle back onto the ground gently
 			local k = con[if rearDown then 2 else 1]
@@ -1246,7 +1276,7 @@ function Physics:step(dt: number, input)
 			local want = -speed * math.tan(self.steerAngle * cfg.WheelieSteer) / L
 			self:spin(n, (want - self.w:Dot(n)) * (1 - math.exp(-8 * h)))
 		end
-	elseif not self.crashed and airborne and control then
+	elseif not self.crashed and airborne and control and cfg.AirAssist then
 		-- level the bike in the air
 		self:spin(rollAxis, (-lean * 2 - self.w:Dot(rollAxis)) * (1 - math.exp(-3 * h)))
 	end
@@ -1260,7 +1290,7 @@ function Physics:step(dt: number, input)
 	if throttle > 0 then
 		local A, drag = self:motor(speed)
 		drive = throttle * A - drag
-	elseif brake > 0 and speed < 1.5 and driver and not self.stoppieOn then
+	elseif brake > 0 and speed < 1.5 and driver and not self.stoppieOn and cfg.ReverseSpeed > 0 then
 		drive = -brake * cfg.Acceleration * 0.35 * clamp(1 + math.min(speed, 0) / cfg.ReverseSpeed, 0, 1)
 		brake = 0
 	end
@@ -1297,7 +1327,8 @@ function Physics:step(dt: number, input)
 		end
 	end
 	local Ir = 1 / rollAxis:Dot(self:invI(rollAxis)) -- inertia felt by a torque about the lean axis
-	local rollMax = cfg.RollTorque * m * g * h
+	-- with crashes off the rider always saves it: far more strength once it's leaned right over
+	local rollMax = cfg.RollTorque * m * g * h * (if not cfg.Crashes and math.abs(lean) > 0.9 then 3 else 1)
 	local rollAcc = 0
 	for _ = 1, 8 do
 		for i = 1, 2 do
@@ -1468,15 +1499,9 @@ end
 
 -- clips layered over Ride, in this order (later ones win), and the weight that drives each
 AnimPlayer.LAYERS = {
-	{ "Tuck", "tuck" }, -- head down on the throttle
-	{ "Brake", "brake" }, -- weight back on the brakes
-	{ "Stand", "stand" }, -- up on the pegs: jumps, bumps, Q
-	{ "HangRight", "hangR" }, -- body into the corner as the bike leans
-	{ "HangLeft", "hangL" },
-	{ "LeanRight", "leanR" }, -- bars turned (follows the steering)
+	{ "Brake", "brake" }, -- braced on the bars when braking
+	{ "LeanRight", "leanR" }, -- bars turned (hands follow the grips, head looks into the turn)
 	{ "LeanLeft", "leanL" },
-	{ "Wheelie", "wheelie" }, -- sat back, arms straight
-	{ "Stoppie", "stoppie" }, -- weight over the front
 }
 
 --[[ Full riding pose.
@@ -1568,64 +1593,39 @@ return {
 	bike = "surron2",
 	clips = {
 		Ride = { length = 2.0, loop = true, steer = 0.0, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12428, -0.00000, 0.00000, 0.99225 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 0.1, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12384, 0.00000, -0.00357, 0.99230 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 0.2, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12277, 0.00000, -0.01209, 0.99236 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 0.3, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12145, 0.00000, -0.02224, 0.99235 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 0.4, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12033, 0.00000, -0.03073, 0.99226 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 0.5, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11985, 0.00000, -0.03428, 0.99220 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 0.6, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12075, 0.00000, -0.03237, 0.99216 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 0.7, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12290, 0.00000, -0.02718, 0.99205 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 0.8, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12546, 0.00000, -0.01952, 0.99191 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 0.9, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12761, 0.00000, -0.01018, 0.99177 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12851, 0.00000, 0.00000, 0.99171 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.1, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12761, 0.00000, 0.01018, 0.99177 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.2, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12546, -0.00000, 0.01952, 0.99191 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.3, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12290, 0.00000, 0.02718, 0.99205 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.4, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12075, -0.00000, 0.03237, 0.99216 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.5, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11985, 0.00000, 0.03428, 0.99220 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.6, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11992, 0.00000, 0.03073, 0.99231 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.7, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12024, 0.00000, 0.02224, 0.99250 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.8, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12094, -0.00000, 0.01209, 0.99259 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 1.9, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12222, -0.00000, 0.00357, 0.99250 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-			{ t = 2.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12428, -0.00000, 0.00000, 0.99225 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-		} },
-		Tuck = { length = 1.0, loop = true, steer = 0.0, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.16918, -0.00000, -0.00000, 0.98559 }, ["Head"] = { -0.18004, -0.00000, 0.00000, 0.98366 }, ["Right Arm"] = { 0.07644, 0.00000, 0.59320, 0.80141 }, ["Left Arm"] = { 0.09924, 0.00000, -0.59411, 0.79824 }, ["Right Leg"] = { -0.12377, -0.00000, 0.11628, 0.98547 }, ["Left Leg"] = { -0.10617, -0.00000, -0.12441, 0.98653 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.16918, -0.00000, -0.00000, 0.98559 }, ["Head"] = { -0.18004, -0.00000, 0.00000, 0.98366 }, ["Right Arm"] = { 0.07644, 0.00000, 0.59320, 0.80141 }, ["Left Arm"] = { 0.09924, 0.00000, -0.59411, 0.79824 }, ["Right Leg"] = { -0.12377, -0.00000, 0.11628, 0.98547 }, ["Left Leg"] = { -0.10617, -0.00000, -0.12441, 0.98653 } } },
+			{ t = 0.0, pose = { ["Torso"] = { -0.01500, -0.00000, -0.00000, 0.99989 }, ["Head"] = { 0.03159, 0.00000, 0.00000, 0.99950 }, ["Right Arm"] = { 0.06858, 0.00000, 0.46325, 0.88357 }, ["Left Arm"] = { 0.08910, -0.00000, -0.46410, 0.88129 }, ["Right Leg"] = { -0.12842, 0.00000, -0.19938, 0.97147 }, ["Left Leg"] = { -0.11037, 0.00000, 0.19365, 0.97484 } } },
+			{ t = 0.1, pose = { ["Torso"] = { -0.01448, 0.00000, 0.00000, 0.99989 }, ["Head"] = { 0.03151, 0.00000, -0.00346, 0.99950 }, ["Right Arm"] = { 0.06861, 0.00000, 0.46364, 0.88337 }, ["Left Arm"] = { 0.08915, 0.00000, -0.46448, 0.88108 }, ["Right Leg"] = { -0.12843, -0.00000, -0.19862, 0.97162 }, ["Left Leg"] = { -0.11037, -0.00000, 0.19288, 0.97499 } } },
+			{ t = 0.2, pose = { ["Torso"] = { -0.01324, 0.00000, 0.00000, 0.99991 }, ["Head"] = { 0.03130, 0.00000, -0.01170, 0.99944 }, ["Right Arm"] = { 0.06870, 0.00000, 0.46455, 0.88288 }, ["Left Arm"] = { 0.08925, -0.00000, -0.46540, 0.88059 }, ["Right Leg"] = { -0.12845, 0.00000, -0.19680, 0.97199 }, ["Left Leg"] = { -0.11039, 0.00000, 0.19104, 0.97536 } } },
+			{ t = 0.3, pose = { ["Torso"] = { -0.01176, 0.00000, 0.00000, 0.99993 }, ["Head"] = { 0.03104, -0.00000, -0.02154, 0.99929 }, ["Right Arm"] = { 0.06879, 0.00000, 0.46564, 0.88229 }, ["Left Arm"] = { 0.08938, 0.00000, -0.46650, 0.88000 }, ["Right Leg"] = { -0.12848, 0.00000, -0.19463, 0.97243 }, ["Left Leg"] = { -0.11041, 0.00000, 0.18884, 0.97578 } } },
+			{ t = 0.4, pose = { ["Torso"] = { -0.01052, 0.00000, -0.00000, 0.99994 }, ["Head"] = { 0.03082, -0.00000, -0.02976, 0.99908 }, ["Right Arm"] = { 0.06888, 0.00000, 0.46656, 0.88180 }, ["Left Arm"] = { 0.08949, 0.00000, -0.46741, 0.87950 }, ["Right Leg"] = { -0.12849, -0.00000, -0.19280, 0.97279 }, ["Left Leg"] = { -0.11043, 0.00000, 0.18699, 0.97613 } } },
+			{ t = 0.5, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.03072, 0.00000, -0.03321, 0.99898 }, ["Right Arm"] = { 0.06891, 0.00000, 0.46694, 0.88160 }, ["Left Arm"] = { 0.08953, -0.00000, -0.46780, 0.87929 }, ["Right Leg"] = { -0.12850, 0.00000, -0.19204, 0.97294 }, ["Left Leg"] = { -0.11044, -0.00000, 0.18622, 0.97628 } } },
+			{ t = 0.6, pose = { ["Torso"] = { -0.01052, 0.00000, -0.00000, 0.99994 }, ["Head"] = { 0.03038, -0.00000, -0.03136, 0.99905 }, ["Right Arm"] = { 0.06888, 0.00000, 0.46656, 0.88180 }, ["Left Arm"] = { 0.08949, 0.00000, -0.46741, 0.87950 }, ["Right Leg"] = { -0.12849, -0.00000, -0.19280, 0.97279 }, ["Left Leg"] = { -0.11043, 0.00000, 0.18699, 0.97613 } } },
+			{ t = 0.7, pose = { ["Torso"] = { -0.01176, 0.00000, 0.00000, 0.99993 }, ["Head"] = { 0.02957, -0.00000, -0.02632, 0.99922 }, ["Right Arm"] = { 0.06879, 0.00000, 0.46564, 0.88229 }, ["Left Arm"] = { 0.08938, 0.00000, -0.46650, 0.88000 }, ["Right Leg"] = { -0.12848, 0.00000, -0.19463, 0.97243 }, ["Left Leg"] = { -0.11041, 0.00000, 0.18884, 0.97578 } } },
+			{ t = 0.8, pose = { ["Torso"] = { -0.01324, 0.00000, 0.00000, 0.99991 }, ["Head"] = { 0.02860, 0.00000, -0.01888, 0.99941 }, ["Right Arm"] = { 0.06870, 0.00000, 0.46455, 0.88288 }, ["Left Arm"] = { 0.08925, -0.00000, -0.46540, 0.88059 }, ["Right Leg"] = { -0.12845, 0.00000, -0.19680, 0.97199 }, ["Left Leg"] = { -0.11039, 0.00000, 0.19104, 0.97536 } } },
+			{ t = 0.9, pose = { ["Torso"] = { -0.01448, 0.00000, 0.00000, 0.99989 }, ["Head"] = { 0.02779, -0.00000, -0.00984, 0.99957 }, ["Right Arm"] = { 0.06861, 0.00000, 0.46364, 0.88337 }, ["Left Arm"] = { 0.08915, 0.00000, -0.46448, 0.88108 }, ["Right Leg"] = { -0.12843, -0.00000, -0.19862, 0.97162 }, ["Left Leg"] = { -0.11037, -0.00000, 0.19288, 0.97499 } } },
+			{ t = 1.0, pose = { ["Torso"] = { -0.01500, -0.00000, -0.00000, 0.99989 }, ["Head"] = { 0.02744, -0.00000, 0.00000, 0.99962 }, ["Right Arm"] = { 0.06858, 0.00000, 0.46325, 0.88357 }, ["Left Arm"] = { 0.08910, -0.00000, -0.46410, 0.88129 }, ["Right Leg"] = { -0.12842, 0.00000, -0.19938, 0.97147 }, ["Left Leg"] = { -0.11037, 0.00000, 0.19365, 0.97484 } } },
+			{ t = 1.1, pose = { ["Torso"] = { -0.01448, 0.00000, 0.00000, 0.99989 }, ["Head"] = { 0.02779, -0.00000, 0.00984, 0.99957 }, ["Right Arm"] = { 0.06861, 0.00000, 0.46364, 0.88337 }, ["Left Arm"] = { 0.08915, 0.00000, -0.46448, 0.88108 }, ["Right Leg"] = { -0.12843, -0.00000, -0.19862, 0.97162 }, ["Left Leg"] = { -0.11037, -0.00000, 0.19288, 0.97499 } } },
+			{ t = 1.2, pose = { ["Torso"] = { -0.01324, 0.00000, 0.00000, 0.99991 }, ["Head"] = { 0.02860, 0.00000, 0.01888, 0.99941 }, ["Right Arm"] = { 0.06870, 0.00000, 0.46455, 0.88288 }, ["Left Arm"] = { 0.08925, -0.00000, -0.46540, 0.88059 }, ["Right Leg"] = { -0.12845, 0.00000, -0.19680, 0.97199 }, ["Left Leg"] = { -0.11039, 0.00000, 0.19104, 0.97536 } } },
+			{ t = 1.3, pose = { ["Torso"] = { -0.01176, 0.00000, 0.00000, 0.99993 }, ["Head"] = { 0.02957, 0.00000, 0.02632, 0.99922 }, ["Right Arm"] = { 0.06879, 0.00000, 0.46564, 0.88229 }, ["Left Arm"] = { 0.08938, 0.00000, -0.46650, 0.88000 }, ["Right Leg"] = { -0.12848, 0.00000, -0.19463, 0.97243 }, ["Left Leg"] = { -0.11041, 0.00000, 0.18884, 0.97578 } } },
+			{ t = 1.4, pose = { ["Torso"] = { -0.01052, 0.00000, -0.00000, 0.99994 }, ["Head"] = { 0.03038, 0.00000, 0.03136, 0.99905 }, ["Right Arm"] = { 0.06888, 0.00000, 0.46656, 0.88180 }, ["Left Arm"] = { 0.08949, 0.00000, -0.46741, 0.87950 }, ["Right Leg"] = { -0.12849, -0.00000, -0.19280, 0.97279 }, ["Left Leg"] = { -0.11043, 0.00000, 0.18699, 0.97613 } } },
+			{ t = 1.5, pose = { ["Torso"] = { -0.01000, 0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.03072, -0.00000, 0.03321, 0.99898 }, ["Right Arm"] = { 0.06891, 0.00000, 0.46694, 0.88160 }, ["Left Arm"] = { 0.08953, -0.00000, -0.46780, 0.87929 }, ["Right Leg"] = { -0.12850, 0.00000, -0.19204, 0.97294 }, ["Left Leg"] = { -0.11044, -0.00000, 0.18622, 0.97628 } } },
+			{ t = 1.6, pose = { ["Torso"] = { -0.01015, -0.00000, -0.00000, 0.99995 }, ["Head"] = { 0.03045, -0.00000, 0.02977, 0.99909 }, ["Right Arm"] = { 0.06890, 0.00000, 0.46683, 0.88166 }, ["Left Arm"] = { 0.08952, -0.00000, -0.46768, 0.87935 }, ["Right Leg"] = { -0.12850, 0.00000, -0.19226, 0.97289 }, ["Left Leg"] = { -0.11043, 0.00000, 0.18644, 0.97624 } } },
+			{ t = 1.7, pose = { ["Torso"] = { -0.01065, 0.00000, -0.00000, 0.99994 }, ["Head"] = { 0.02994, 0.00000, 0.02154, 0.99932 }, ["Right Arm"] = { 0.06887, 0.00000, 0.46645, 0.88186 }, ["Left Arm"] = { 0.08948, -0.00000, -0.46731, 0.87956 }, ["Right Leg"] = { -0.12849, 0.00000, -0.19300, 0.97275 }, ["Left Leg"] = { -0.11043, 0.00000, 0.18719, 0.97610 } } },
+			{ t = 1.8, pose = { ["Torso"] = { -0.01158, 0.00000, -0.00000, 0.99993 }, ["Head"] = { 0.02965, 0.00000, 0.01171, 0.99949 }, ["Right Arm"] = { 0.06881, -0.00000, 0.46577, 0.88223 }, ["Left Arm"] = { 0.08940, -0.00000, -0.46662, 0.87993 }, ["Right Leg"] = { -0.12848, -0.00000, -0.19436, 0.97248 }, ["Left Leg"] = { -0.11041, -0.00000, 0.18857, 0.97583 } } },
+			{ t = 1.9, pose = { ["Torso"] = { -0.01300, 0.00000, 0.00000, 0.99991 }, ["Head"] = { 0.03004, 0.00000, 0.00346, 0.99954 }, ["Right Arm"] = { 0.06871, -0.00000, 0.46472, 0.88279 }, ["Left Arm"] = { 0.08928, 0.00000, -0.46557, 0.88050 }, ["Right Leg"] = { -0.12846, -0.00000, -0.19646, 0.97206 }, ["Left Leg"] = { -0.11039, 0.00000, 0.19069, 0.97542 } } },
+			{ t = 2.0, pose = { ["Torso"] = { -0.01500, -0.00000, -0.00000, 0.99989 }, ["Head"] = { 0.03159, 0.00000, 0.00000, 0.99950 }, ["Right Arm"] = { 0.06858, 0.00000, 0.46325, 0.88357 }, ["Left Arm"] = { 0.08910, -0.00000, -0.46410, 0.88129 }, ["Right Leg"] = { -0.12842, 0.00000, -0.19938, 0.97147 }, ["Left Leg"] = { -0.11037, 0.00000, 0.19365, 0.97484 } } },
 		} },
 		Brake = { length = 1.0, loop = true, steer = 0.0, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.10481, 0.00000, 0.00000, 0.99449 }, ["Head"] = { -0.07199, 0.00000, 0.00000, 0.99740 }, ["Right Arm"] = { 0.07066, 0.00000, 0.54471, 0.83564 }, ["Left Arm"] = { 0.09174, 0.00000, -0.54555, 0.83304 }, ["Right Leg"] = { -0.12411, 0.00000, 0.01727, 0.99212 }, ["Left Leg"] = { -0.10651, 0.00000, -0.02485, 0.99400 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.10481, 0.00000, 0.00000, 0.99449 }, ["Head"] = { -0.07199, 0.00000, 0.00000, 0.99740 }, ["Right Arm"] = { 0.07066, 0.00000, 0.54471, 0.83564 }, ["Left Arm"] = { 0.09174, 0.00000, -0.54555, 0.83304 }, ["Right Leg"] = { -0.12411, 0.00000, 0.01727, 0.99212 }, ["Left Leg"] = { -0.10651, 0.00000, -0.02485, 0.99400 } } },
+			{ t = 0.0, pose = { ["Torso"] = { -0.03000, 0.00000, 0.00000, 0.99955 }, ["Head"] = { 0.06300, 0.00000, 0.00000, 0.99801 }, ["Right Arm"] = { 0.06762, 0.00000, 0.45218, 0.88936 }, ["Left Arm"] = { 0.08786, -0.00000, -0.45300, 0.88717 }, ["Right Leg"] = { -0.12817, 0.00000, -0.22122, 0.96676 }, ["Left Leg"] = { -0.11014, -0.00000, 0.21574, 0.97022 } } },
+			{ t = 1.0, pose = { ["Torso"] = { -0.03000, 0.00000, 0.00000, 0.99955 }, ["Head"] = { 0.06300, 0.00000, 0.00000, 0.99801 }, ["Right Arm"] = { 0.06762, 0.00000, 0.45218, 0.88936 }, ["Left Arm"] = { 0.08786, -0.00000, -0.45300, 0.88717 }, ["Right Leg"] = { -0.12817, 0.00000, -0.22122, 0.96676 }, ["Left Leg"] = { -0.11014, -0.00000, 0.21574, 0.97022 } } },
 		} },
 		LeanRight = { length = 1.0, loop = true, steer = 0.24, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.17564, -0.13342, -0.16469, 0.96137 }, ["Head"] = { -0.17435, 0.00000, -0.06362, 0.98263 }, ["Right Arm"] = { 0.25756, 0.00000, 0.62658, 0.73557 }, ["Left Arm"] = { -0.06365, 0.00000, -0.49522, 0.86643 }, ["Right Leg"] = { -0.31351, -0.00000, 0.24114, 0.91846 }, ["Left Leg"] = { 0.10797, -0.00000, -0.09514, 0.98959 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.17564, -0.13342, -0.16469, 0.96137 }, ["Head"] = { -0.17435, 0.00000, -0.06362, 0.98263 }, ["Right Arm"] = { 0.25756, 0.00000, 0.62658, 0.73557 }, ["Left Arm"] = { -0.06365, 0.00000, -0.49522, 0.86643 }, ["Right Leg"] = { -0.31351, -0.00000, 0.24114, 0.91846 }, ["Left Leg"] = { 0.10797, -0.00000, -0.09514, 0.98959 } } },
+			{ t = 0.0, pose = { ["Torso"] = { -0.00498, 0.00045, -0.08988, 0.99594 }, ["Head"] = { 0.03916, -0.00000, -0.16241, 0.98594 }, ["Right Arm"] = { 0.15569, 0.00000, 0.43087, 0.88888 }, ["Left Arm"] = { 0.00243, 0.00000, -0.50417, 0.86360 }, ["Right Leg"] = { -0.15773, 0.00000, -0.13446, 0.97828 }, ["Left Leg"] = { -0.07461, 0.00000, 0.21871, 0.97293 } } },
+			{ t = 1.0, pose = { ["Torso"] = { -0.00498, 0.00045, -0.08988, 0.99594 }, ["Head"] = { 0.03916, -0.00000, -0.16241, 0.98594 }, ["Right Arm"] = { 0.15569, 0.00000, 0.43087, 0.88888 }, ["Left Arm"] = { 0.00243, 0.00000, -0.50417, 0.86360 }, ["Right Leg"] = { -0.15773, 0.00000, -0.13446, 0.97828 }, ["Left Leg"] = { -0.07461, 0.00000, 0.21871, 0.97293 } } },
 		} },
 		LeanLeft = { length = 1.0, loop = true, steer = -0.24, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.17430, 0.13517, 0.17430, 0.95967 }, ["Head"] = { -0.17270, -0.00000, 0.05327, 0.98353 }, ["Right Arm"] = { -0.08833, 0.00000, 0.46757, 0.87953 }, ["Left Arm"] = { 0.28308, 0.00000, -0.61252, 0.73803 }, ["Right Leg"] = { 0.09810, 0.00000, 0.07991, 0.99196 }, ["Left Leg"] = { -0.29659, -0.00000, -0.25045, 0.92158 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.17430, 0.13517, 0.17430, 0.95967 }, ["Head"] = { -0.17270, -0.00000, 0.05327, 0.98353 }, ["Right Arm"] = { -0.08833, 0.00000, 0.46757, 0.87953 }, ["Left Arm"] = { 0.28308, 0.00000, -0.61252, 0.73803 }, ["Right Leg"] = { 0.09810, 0.00000, 0.07991, 0.99196 }, ["Left Leg"] = { -0.29659, -0.00000, -0.25045, 0.92158 } } },
-		} },
-		Wheelie = { length = 1.0, loop = true, steer = 0.0, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.06495, -0.00000, -0.00000, 0.99789 }, ["Head"] = { 0.25625, 0.00000, 0.00000, 0.96661 }, ["Right Arm"] = { 0.06763, 0.00000, 0.51481, 0.85463 }, ["Left Arm"] = { 0.08781, -0.00000, -0.51561, 0.85231 }, ["Right Leg"] = { -0.12407, -0.00000, -0.04410, 0.99129 }, ["Left Leg"] = { -0.10649, -0.00000, 0.03698, 0.99363 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.06495, -0.00000, -0.00000, 0.99789 }, ["Head"] = { 0.25625, 0.00000, 0.00000, 0.96661 }, ["Right Arm"] = { 0.06763, 0.00000, 0.51481, 0.85463 }, ["Left Arm"] = { 0.08781, -0.00000, -0.51561, 0.85231 }, ["Right Leg"] = { -0.12407, -0.00000, -0.04410, 0.99129 }, ["Left Leg"] = { -0.10649, -0.00000, 0.03698, 0.99363 } } },
-		} },
-		Stand = { length = 1.0, loop = true, steer = 0.0, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.36162, 0.00000, 0.00000, 0.93233 }, ["Head"] = { -0.36610, 0.00000, 0.00000, 0.93058 }, ["Right Arm"] = { 0.09212, -0.00000, 0.76265, 0.64022 }, ["Left Arm"] = { 0.11947, 0.00000, -0.76297, 0.63530 }, ["Right Leg"] = { -0.11917, -0.00000, 0.44535, 0.88739 }, ["Left Leg"] = { -0.10193, -0.00000, -0.45324, 0.88554 } }, pos = { ["Torso"] = { 0.00000, 0.25000, 0.05000 } } },
-			{ t = 0.5, pose = { ["Torso"] = { 0.36162, 0.00000, 0.00000, 0.93233 }, ["Head"] = { -0.36650, -0.00000, 0.00000, 0.93042 }, ["Right Arm"] = { 0.09274, -0.00000, 0.76445, 0.63797 }, ["Left Arm"] = { 0.12027, -0.00000, -0.76477, 0.63299 }, ["Right Leg"] = { -0.11975, 0.00000, 0.44570, 0.88714 }, ["Left Leg"] = { -0.10243, 0.00000, -0.45363, 0.88528 } }, pos = { ["Torso"] = { -0.00000, 0.25000, 0.04000 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.36162, 0.00000, 0.00000, 0.93233 }, ["Head"] = { -0.36610, 0.00000, 0.00000, 0.93058 }, ["Right Arm"] = { 0.09212, -0.00000, 0.76265, 0.64022 }, ["Left Arm"] = { 0.11947, 0.00000, -0.76297, 0.63530 }, ["Right Leg"] = { -0.11917, -0.00000, 0.44535, 0.88739 }, ["Left Leg"] = { -0.10193, -0.00000, -0.45324, 0.88554 } }, pos = { ["Torso"] = { 0.00000, 0.25000, 0.05000 } } },
-		} },
-		Stoppie = { length = 1.0, loop = true, steer = 0.0, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.09983, -0.00000, 0.00000, 0.99500 }, ["Head"] = { -0.21644, 0.00000, 0.00000, 0.97630 }, ["Right Arm"] = { 0.06750, 0.00000, 0.43123, 0.89971 }, ["Left Arm"] = { 0.08767, 0.00000, -0.43204, 0.89758 }, ["Right Leg"] = { -0.10599, -0.00000, -0.05008, 0.99311 }, ["Left Leg"] = { -0.09087, -0.00000, 0.04413, 0.99488 } }, pos = { ["Torso"] = { 0.00000, -0.30000, 0.25000 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.09983, -0.00000, 0.00000, 0.99500 }, ["Head"] = { -0.21644, 0.00000, 0.00000, 0.97630 }, ["Right Arm"] = { 0.06750, 0.00000, 0.43123, 0.89971 }, ["Left Arm"] = { 0.08767, 0.00000, -0.43204, 0.89758 }, ["Right Leg"] = { -0.10599, -0.00000, -0.05008, 0.99311 }, ["Left Leg"] = { -0.09087, -0.00000, 0.04413, 0.99488 } }, pos = { ["Torso"] = { 0.00000, -0.30000, 0.25000 } } },
-		} },
-		HangRight = { length = 1.0, loop = true, steer = 0.0, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.21248, -0.17653, -0.09885, 0.95599 }, ["Head"] = { -0.20213, -0.00000, -0.16000, 0.96620 }, ["Right Arm"] = { 0.24025, 0.00000, 0.72928, 0.64065 }, ["Left Arm"] = { 0.04449, 0.00000, -0.47475, 0.87899 }, ["Right Leg"] = { -0.38187, 0.00000, 0.24751, 0.89046 }, ["Left Leg"] = { 0.15802, 0.00000, -0.16798, 0.97304 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.21248, -0.17653, -0.09885, 0.95599 }, ["Head"] = { -0.20213, -0.00000, -0.16000, 0.96620 }, ["Right Arm"] = { 0.24025, 0.00000, 0.72928, 0.64065 }, ["Left Arm"] = { 0.04449, 0.00000, -0.47475, 0.87899 }, ["Right Leg"] = { -0.38187, 0.00000, 0.24751, 0.89046 }, ["Left Leg"] = { 0.15802, 0.00000, -0.16798, 0.97304 } } },
-		} },
-		HangLeft = { length = 1.0, loop = true, steer = 0.0, keys = {
-			{ t = 0.0, pose = { ["Torso"] = { 0.22500, 0.18025, 0.10571, 0.95169 }, ["Head"] = { -0.21503, -0.00000, 0.15070, 0.96491 }, ["Right Arm"] = { 0.01910, 0.00000, 0.46798, 0.88353 }, ["Left Arm"] = { 0.27843, 0.00000, -0.72630, 0.62846 }, ["Right Leg"] = { 0.14666, 0.00000, 0.17602, 0.97340 }, ["Left Leg"] = { -0.36601, -0.00000, -0.27810, 0.88809 } } },
-			{ t = 1.0, pose = { ["Torso"] = { 0.22500, 0.18025, 0.10571, 0.95169 }, ["Head"] = { -0.21503, -0.00000, 0.15070, 0.96491 }, ["Right Arm"] = { 0.01910, 0.00000, 0.46798, 0.88353 }, ["Left Arm"] = { 0.27843, 0.00000, -0.72630, 0.62846 }, ["Right Leg"] = { 0.14666, 0.00000, 0.17602, 0.97340 }, ["Left Leg"] = { -0.36601, -0.00000, -0.27810, 0.88809 } } },
+			{ t = 0.0, pose = { ["Torso"] = { -0.00995, -0.00100, 0.09983, 0.99495 }, ["Head"] = { 0.04390, -0.00000, 0.15245, 0.98733 }, ["Right Arm"] = { -0.02828, -0.00000, 0.48506, 0.87403 }, ["Left Arm"] = { 0.18151, 0.00000, -0.42221, 0.88814 }, ["Right Leg"] = { -0.08641, 0.00000, -0.23866, 0.96725 }, ["Left Leg"] = { -0.14111, 0.00000, 0.13356, 0.98094 } } },
+			{ t = 1.0, pose = { ["Torso"] = { -0.00995, -0.00100, 0.09983, 0.99495 }, ["Head"] = { 0.04390, -0.00000, 0.15245, 0.98733 }, ["Right Arm"] = { -0.02828, -0.00000, 0.48506, 0.87403 }, ["Left Arm"] = { 0.18151, 0.00000, -0.42221, 0.88814 }, ["Right Leg"] = { -0.08641, 0.00000, -0.23866, 0.96725 }, ["Left Leg"] = { -0.14111, 0.00000, 0.13356, 0.98094 } } },
 		} },
 	},
 }
@@ -1803,7 +1803,7 @@ end)
 ]]></ProtectedString><token name="RunContext">1</token><bool name="Disabled">false</bool></Properties></Item>
 <Item class="Script" referent="RBX7"><Properties><string name="Name">BikeClient</string><ProtectedString name="Source"><![CDATA[-- RideKit.BikeClient (Script, RunContext = Client). Runs on every player's
 -- machine for this bike:
---   * the rider's machine runs the physics (RideKit.Physics) and shows the HUD
+--   * the rider's machine runs the physics (RideKit.Physics)
 --   * everyone sees the wheels spin, the bars turn, the fork and swingarm move,
 --     the engine sound and brake light, and the rider animated (R6)
 
@@ -1817,191 +1817,6 @@ local AnimData = require(kit:WaitForChild("AnimData"))
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ContextActionService = game:GetService("ContextActionService")
-
-local STUD_M = 0.28 -- metres per stud (Roblox avatar scale); studs/s x 1.008 = km/h
-
-local CRASH_TEXT = {
-	loop = "Looped it!",
-	lowside = "Lost the front!",
-	hit = "Hit something!",
-	endo = "Over the bars!",
-	flip = "Flipped it!",
-}
-
--- rider HUD: speed, wheelie / stoppie timer with the balance bar, messages ---------------------
-local function makeHud(player: Player)
-	local gui = Instance.new("ScreenGui")
-	gui.Name = "RideKit_HUD"
-	gui.ResetOnSpawn = false
-	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-
-	local function label(parent, text, size, font, color, anchor, pos, dims)
-		local l = Instance.new("TextLabel")
-		l.BackgroundTransparency = 1
-		l.Text = text
-		l.TextSize = size
-		l.Font = font
-		l.TextColor3 = color or Color3.new(1, 1, 1)
-		l.AnchorPoint = anchor or Vector2.zero
-		l.Position = pos or UDim2.new()
-		l.Size = dims or UDim2.new(1, 0, 0, size)
-		l.Parent = parent
-		return l
-	end
-	local function panel(name, anchor, pos, size)
-		local f = Instance.new("Frame")
-		f.Name = name
-		f.AnchorPoint = anchor
-		f.Position = pos
-		f.Size = size
-		f.BackgroundColor3 = Color3.fromRGB(12, 14, 18)
-		f.BackgroundTransparency = 0.3
-		f.BorderSizePixel = 0
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, 12)
-		c.Parent = f
-		f.Parent = gui
-		return f
-	end
-	local function bar(parent, color, x, w, y, h)
-		local f = Instance.new("Frame")
-		f.BorderSizePixel = 0
-		f.BackgroundColor3 = color
-		f.Position = UDim2.new(x, 0, 0, y)
-		f.Size = UDim2.new(w, 0, 0, h)
-		f.Parent = parent
-		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, math.floor(h / 2))
-		c.Parent = f
-		return f
-	end
-
-	-- speed, bottom right
-	local sp = panel("Speed", Vector2.new(1, 1), UDim2.new(1, -20, 1, -20), UDim2.fromOffset(160, 84))
-	local speed = label(sp, "0", 46, Enum.Font.GothamBlack, nil, Vector2.new(1, 0), UDim2.new(1, -14, 0, 6), UDim2.new(1, -28, 0, 46))
-	speed.TextXAlignment = Enum.TextXAlignment.Right
-	local unit = label(sp, "KM/H", 13, Enum.Font.GothamBold, Color3.fromRGB(160, 168, 180), Vector2.new(1, 0), UDim2.new(1, -14, 0, 52), UDim2.new(1, -28, 0, 13))
-	unit.TextXAlignment = Enum.TextXAlignment.Right
-	local powerTrack = bar(sp, Color3.fromRGB(45, 50, 58), 0.08, 0.84, 72, 5)
-	local power = bar(powerTrack, Color3.fromRGB(80, 220, 120), 0, 0, 0, 5)
-
-	-- wheelie / stoppie, top centre
-	local tr = panel("Trick", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 64), UDim2.fromOffset(320, 104))
-	tr.Visible = false
-	local title = label(tr, "WHEELIE", 14, Enum.Font.GothamBold, Color3.fromRGB(255, 200, 70), nil, UDim2.fromOffset(0, 8))
-	local timeL = label(tr, "0.0 s", 30, Enum.Font.GothamBlack, nil, nil, UDim2.fromOffset(0, 24))
-	local track = bar(tr, Color3.fromRGB(45, 50, 58), 0.06, 0.88, 64, 10)
-	local sweet = bar(track, Color3.fromRGB(70, 200, 110), 0.6, 0.2, 0, 10)
-	local over = bar(track, Color3.fromRGB(230, 70, 60), 1 / 1.2, 1 - 1 / 1.2, 0, 10)
-	local marker = bar(track, Color3.new(1, 1, 1), 0, 0, -4, 18)
-	marker.Size = UDim2.fromOffset(4, 18)
-	marker.AnchorPoint = Vector2.new(0.5, 0)
-	local best = label(tr, "", 12, Enum.Font.GothamBold, Color3.fromRGB(160, 168, 180), nil, UDim2.fromOffset(0, 82))
-
-	-- big message, middle
-	local msg = label(gui, "", 44, Enum.Font.GothamBlack, nil, Vector2.new(0.5, 0.5), UDim2.new(0.5, 0, 0.35, 0), UDim2.new(1, 0, 0, 50))
-	local stroke = Instance.new("UIStroke")
-	stroke.Thickness = 3
-	stroke.Parent = msg
-	msg.TextTransparency = 1
-	stroke.Transparency = 1
-
-	-- controls, bottom centre (fades out)
-	local hintText = if game:GetService("UserInputService").TouchEnabled
-		then "Wheelie / Stoppie buttons · stick to ride · Jump to get off"
-		else "W / S  throttle · brake     A / D  steer     E  wheelie     Q  stoppie / stand     Space  get off"
-	local hint = label(gui, hintText, 14, Enum.Font.GothamBold, nil, Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -22), UDim2.new(0.9, 0, 0, 16))
-	local hintStroke = Instance.new("UIStroke")
-	hintStroke.Thickness = 1.5
-	hintStroke.Parent = hint
-
-	gui.Parent = player:WaitForChild("PlayerGui")
-
-	local hud = { gui = gui, bestW = 0, bestS = 0, hintT = 8, shownT = 0, kind = nil, t = 0, dist = 0 }
-	function hud:message(text)
-		local TweenService = game:GetService("TweenService")
-		msg.Text = text
-		msg.TextTransparency = 0
-		stroke.Transparency = 0
-		local fade = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, 1.6)
-		TweenService:Create(msg, fade, { TextTransparency = 1 }):Play()
-		TweenService:Create(stroke, fade, { Transparency = 1 }):Play()
-	end
-	-- off the bike: hide the gauges now, keep a crash message up for a moment
-	function hud:close(linger: boolean)
-		sp.Visible = false
-		tr.Visible = false
-		hint.Visible = false
-		if linger then
-			task.delay(2.4, function()
-				gui:Destroy()
-			end)
-		else
-			gui:Destroy()
-		end
-	end
-	function hud:update(dt, out, throttle, brake)
-		speed.Text = tostring(math.floor(math.abs(out.speed) * 1.008 + 0.5))
-		local p = if brake > 0 then -brake else throttle
-		power.Size = UDim2.new(math.abs(p), 0, 1, 0)
-		power.BackgroundColor3 = if p < 0 then Color3.fromRGB(235, 80, 70) else Color3.fromRGB(80, 220, 120)
-
-		-- trick timer
-		local kind = if out.wheelie then "wheelie" elseif out.stoppie then "stoppie" else nil
-		if kind then
-			if self.kind ~= kind then
-				self.kind, self.t, self.dist = kind, 0, 0
-			end
-			self.t += dt
-			self.dist += math.abs(out.speed) * dt * STUD_M
-			self.shownT = 2
-		elseif self.kind then
-			-- just ended: keep the result up for a moment, record the best
-			if self.kind == "wheelie" and self.t > self.bestW then
-				self.bestW = self.t
-				if self.t > 1.5 then
-					self:message(string.format("Best wheelie! %.1f s", self.t))
-				end
-			elseif self.kind == "stoppie" and self.t > self.bestS then
-				self.bestS = self.t
-			end
-			self.kind = nil
-		end
-		self.shownT -= dt
-		tr.Visible = self.shownT > 0 and self.t > 0.25
-		if tr.Visible then
-			local isW = (kind or self.lastKind) ~= "stoppie"
-			title.Text = if isW then "WHEELIE" else "STOPPIE"
-			timeL.Text = string.format("%.1f s  ·  %d m", self.t, math.floor(self.dist + 0.5))
-			local bestT = if isW then self.bestW else self.bestS
-			best.Text = if bestT > 0 then string.format("BEST  %.1f s", bestT) else ""
-			-- balance bar: 0 = flat, 1/1.2 = the balance point, red = past it
-			local f
-			if isW then
-				local bal = math.max(out.balanceAngle, 0.2)
-				f = out.wheelieAngle / bal
-				sweet.Position = UDim2.new((bal - math.rad(Config.WheelieSweetSpot + 6)) / bal / 1.2, 0, 0, 0)
-				sweet.Size = UDim2.new(math.rad(Config.WheelieSweetSpot + 5) / bal / 1.2, 0, 1, 0)
-			else
-				f = out.stoppieAngle / math.rad(Config.StoppieAngle)
-				sweet.Position = UDim2.new(0.6, 0, 0, 0)
-				sweet.Size = UDim2.new(0.25, 0, 1, 0)
-			end
-			marker.Position = UDim2.new(math.clamp(f / 1.2, 0, 1), 0, 0, -4)
-			marker.BackgroundColor3 = if f > 1 then Color3.fromRGB(255, 90, 80) else Color3.new(1, 1, 1)
-		end
-		if kind then
-			self.lastKind = kind
-		end
-
-		-- controls hint fades out
-		self.hintT -= dt
-		local h = math.clamp(self.hintT / 1.5, 0, 1)
-		hint.TextTransparency = 1 - h
-		hintStroke.Transparency = 1 - h * 0.6
-	end
-	return hud
-end
 
 local function runBike(bike: Model)
 	if not bike:GetAttribute("RideKitReady") then
@@ -2027,21 +1842,15 @@ local function runBike(bike: Model)
 	local armLen = bike:GetAttribute("RK_SwingArm") :: number
 	local travel = Config.SuspensionTravel
 
-	-- E = wheelie / lean back, Q = stoppie / stand up (keyboard, gamepad, mobile buttons)
-	local leanBack, leanForward = 0, 0
-	local id = bike.Name .. "_" .. tostring(math.random(1, 1e9))
-	local ACT_BACK, ACT_FWD = "RideKitWheelie_" .. id, "RideKitStoppie_" .. id
+	-- E = wheelie (keyboard E, gamepad X, the Wheelie button on mobile); stoppies are on S
+	local leanBack = 0
+	local ACT_BACK = "RideKitWheelie_" .. bike.Name .. "_" .. tostring(math.random(1, 1e9))
 	local function onBack(_, state)
 		leanBack = if state == Enum.UserInputState.Begin or state == Enum.UserInputState.Change then 1 else 0
 		return Enum.ContextActionResult.Sink
 	end
-	local function onFwd(_, state)
-		leanForward = if state == Enum.UserInputState.Begin or state == Enum.UserInputState.Change then 1 else 0
-		return Enum.ContextActionResult.Sink
-	end
 
 	local wasDriver = false
-	local hud = nil
 	local crashSent = false
 	local spinF, spinR, steerVis = 0, 0, 0
 	local riderJoints, riderChar = nil, nil
@@ -2084,20 +1893,16 @@ local function runBike(bike: Model)
 		if on then
 			local prio = Enum.ContextActionPriority.High.Value
 			ContextActionService:BindActionAtPriority(ACT_BACK, onBack, true, prio, table.unpack(Config.WheelieKeys))
-			ContextActionService:BindActionAtPriority(ACT_FWD, onFwd, true, prio, table.unpack(Config.StoppieKeys))
 			ContextActionService:SetTitle(ACT_BACK, "Wheelie")
-			ContextActionService:SetTitle(ACT_FWD, "Stoppie")
 			ContextActionService:SetPosition(ACT_BACK, UDim2.new(1, -190, 1, -95))
-			ContextActionService:SetPosition(ACT_FWD, UDim2.new(1, -190, 1, -165))
 		else
 			ContextActionService:UnbindAction(ACT_BACK)
-			ContextActionService:UnbindAction(ACT_FWD)
-			leanBack, leanForward = 0, 0
+			leanBack = 0
 		end
 	end
 
 	-- thrown off: the rider keeps the bike's speed and tumbles; the bike falls over
-	local function crashOff(char: Model, reason: string?)
+	local function crashOff(char: Model)
 		crashSent = true
 		if remote then
 			remote:FireServer("crash")
@@ -2105,9 +1910,6 @@ local function runBike(bike: Model)
 		local hum = char:FindFirstChildOfClass("Humanoid")
 		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
 		local v = chassis.AssemblyLinearVelocity
-		if hud then
-			hud:message(CRASH_TEXT[reason or ""] or "Crashed!")
-		end
 		if hum then
 			hum.Sit = false
 			hum.Jump = true
@@ -2126,28 +1928,18 @@ local function runBike(bike: Model)
 	conn = RunService.Stepped:Connect(function(_, dt)
 		if not bike:IsDescendantOf(workspace) then
 			conn:Disconnect()
-			if hud then
-				hud:close(false)
-			end
 			return
 		end
 		local occupant = seat.Occupant
 		local char = occupant and occupant.Parent
 		local isDriver = char ~= nil and char == player.Character
 
-		-- the driver role: controls, HUD, fresh physics state
+		-- the driver role: controls, fresh physics state
 		if isDriver ~= wasDriver then
 			wasDriver = isDriver
 			physics:reset()
 			bind(isDriver)
-			if hud then
-				hud:close(crashSent)
-				hud = nil
-			end
 			crashSent = false
-			if isDriver and Config.ShowHud then
-				hud = makeHud(player)
-			end
 		end
 
 		physics:setIgnore(if char then { bike, char } else { bike })
@@ -2163,10 +1955,9 @@ local function runBike(bike: Model)
 				brake = brake,
 				steer = steer,
 				leanBack = leanBack,
-				leanForward = leanForward,
 			})
 			if out.crashed and not crashSent and char then
-				crashOff(char, out.crashReason)
+				crashOff(char)
 			end
 		end
 
@@ -2213,10 +2004,6 @@ local function runBike(bike: Model)
 		swingMotor.Transform = CFrame.Angles(-math.asin(math.clamp(offR / armLen, -0.5, 0.5)), 0, 0)
 		rearHubMotor.Transform = CFrame.Angles(-spinR, 0, 0)
 
-		if hud and out then
-			hud:update(dt, out, throttle, brake)
-		end
-
 		-- sounds and brake light -------------------------------------------------------------------
 		local braking = char ~= nil and brake > 0.1 and vF > 1
 		for _, l in ipairs(brakeLights) do
@@ -2257,37 +2044,12 @@ local function runBike(bike: Model)
 		if riderJoints and char then
 			AnimPlayer.silence(char)
 			animTime += dt
-			-- what the bike is doing: from the physics for the rider, from the bike for everyone else
-			local lean, wheelie, stoppie, airborne, standing
-			if out then
-				lean = out.lean
-				wheelie = if out.wheelie then math.clamp(out.wheelieAngle / math.max(out.balanceAngle, 0.3) * 1.2, 0, 1) else 0
-				stoppie = if out.stoppie then math.clamp(out.stoppieAngle / math.rad(Config.StoppieAngle), 0, 1) else 0
-				airborne = out.airborne and out.airTime > 0.08
-				standing = out.standing and math.abs(vF) > 3
-			else
-				local up = cf.UpVector
-				local flatFwd = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
-				local flatRight = if flatFwd.Magnitude > 0.05 then flatFwd.Unit:Cross(Vector3.yAxis) else cf.RightVector
-				lean = math.atan2(up:Dot(flatRight), up.Y)
-				local pitch = math.asin(math.clamp(cf.LookVector.Y, -1, 1))
-				wheelie = if hitR and not hitF then math.clamp((pitch - 0.08) / 0.6, 0, 1) else 0
-				stoppie = if hitF and not hitR then math.clamp((-pitch - 0.05) / 0.3, 0, 1) else 0
-				airborne = not hitF and not hitR
-				standing = false
-			end
-			local moving = math.abs(vF) > 2
-			local maxLean = math.rad(Config.MaxLean)
+			-- always seated, upright: brace on the brakes (and in a stoppie), arms follow the bars
+			local stoppie = if out then out.stoppie else (hitF and not hitR and cf.LookVector.Y < -0.05)
 			local target = {
-				tuck = if wheelie > 0.1 then 0 else throttle * math.clamp(math.abs(vF) / 40, 0.25, 1),
-				brake = if braking and stoppie < 0.1 then brake else 0,
-				stand = if airborne or standing then 1 else 0,
-				hangR = if moving then math.clamp(lean / maxLean, 0, 1) else 0,
-				hangL = if moving then math.clamp(-lean / maxLean, 0, 1) else 0,
+				brake = if braking or stoppie then math.max(brake, if stoppie then 1 else 0) else 0,
 				leanR = math.clamp(steerVis / clipSteer, 0, 1),
 				leanL = math.clamp(-steerVis / clipSteer, 0, 1),
-				wheelie = wheelie,
-				stoppie = stoppie,
 			}
 			local a = 1 - math.exp(-Config.AnimBlendSpeed * dt)
 			for k, v in pairs(target) do

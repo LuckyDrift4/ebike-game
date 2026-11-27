@@ -189,8 +189,9 @@ function Rig.riderSetup(d, cfg)
 	end
 	-- R6 rider: HumanoidRootPart = torso centre, shoulders 0.5 above it (arms reach 1.5 to the
 	-- hands, which sit 0.5 outboard), hips 1 below it (legs reach 2 to the feet, 0.5 inboard).
-	-- Search the seat position (forward along the seat, hip height) where a natural forward
-	-- lean puts the hands on the grips and the feet near the pegs.
+	-- Search the seat position (forward along the seat, hip height) where the riding posture
+	-- (Pose.TorsoLean; 0 = sitting upright) puts the hands on the grips and the feet near the
+	-- pegs, with the hips on the seat.
 	local lean = cfg.Pose.TorsoLean
 	local sL, cL = math.sin(lean), math.cos(lean)
 	local aimR, aimL = gripR - right * 0.5, gripL + right * 0.5
@@ -218,6 +219,7 @@ function Rig.riderSetup(d, cfg)
 			local cost = 4 * (eR * eR + eL * eL) + leg(lR) + leg(lL)
 				+ 2 * math.max(0, f - seatHalfLen) ^ 2 -- prefer sitting on the seat
 				+ 2 * math.max(0, seatTop - 0.1 - hipY) ^ 2 -- and not sunk into it
+				+ 3 * (hipY - seatTop) ^ 2 -- sat right on it, not hovering
 			if cost < best then
 				best, bestF, bestHip = cost, f, hipY
 			end
