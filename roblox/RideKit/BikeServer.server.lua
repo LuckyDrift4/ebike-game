@@ -9,11 +9,19 @@ local Config = require(kit:WaitForChild("Config"))
 local Rig = require(kit:WaitForChild("Rig"))
 local Physics = require(kit:WaitForChild("Physics"))
 
+local RIDEKIT_VERSION: string? = nil -- the paste-in RideKit.lua sets its version here
+
 -- @body (everything below is shared with the single-file RideKit_Server.lua)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
 local rig = Rig.build(bike, Config)
+-- the paste-in RideKit.lua stamps its version so the player's copy can check it matches
+local version = RIDEKIT_VERSION
+if version then
+	bike:SetAttribute("RideKitVersion", version)
+	print(`RideKit {version}: bike script running in {bike:GetFullName()}`)
+end
 local seat: VehicleSeat = rig.seat
 local chassis: BasePart = rig.chassis
 local prompt: ProximityPrompt = rig.prompt

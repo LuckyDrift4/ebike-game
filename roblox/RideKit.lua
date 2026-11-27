@@ -1,5 +1,7 @@
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+local RIDEKIT_VERSION: string? = "1b3d2c37"
+
 local Config = (function()
 	-- RideKit settings. Tweak these in Studio while play-testing.
 	-- Distances are in studs, speeds in studs/second (shown as km/h), angles in degrees.
@@ -1685,6 +1687,12 @@ if game:GetService("RunService"):IsServer() then
 		local RunService = game:GetService("RunService")
 
 		local rig = Rig.build(bike, Config)
+		-- the paste-in RideKit.lua stamps its version so the player's copy can check it matches
+		local version = RIDEKIT_VERSION
+		if version then
+			bike:SetAttribute("RideKitVersion", version)
+			print(`RideKit {version}: bike script running in {bike:GetFullName()}`)
+		end
 		local seat: VehicleSeat = rig.seat
 		local chassis: BasePart = rig.chassis
 		local prompt: ProximityPrompt = rig.prompt
@@ -1849,6 +1857,16 @@ else
 	local function runBike(bike: Model)
 		if not bike:GetAttribute("RideKitReady") then
 			bike:GetAttributeChangedSignal("RideKitReady"):Wait()
+		end
+
+		-- the bike's Script and this LocalScript must be the same RideKit.lua
+		local mine = RIDEKIT_VERSION
+		local theirs = bike:GetAttribute("RideKitVersion")
+		if mine and theirs and mine ~= theirs then
+			warn(
+				`RideKit: this LocalScript is version {mine} but the Script in {bike.Name} is version {theirs}. `
+					.. "Paste the same, newest RideKit.lua into both."
+			)
 		end
 
 		local player = Players.LocalPlayer
@@ -2121,6 +2139,7 @@ else
 			end
 		end)
 	end
+	print(`RideKit {RIDEKIT_VERSION}: player script running`)
 	local CollectionService = game:GetService("CollectionService")
 	for _, b in ipairs(CollectionService:GetTagged("RideKitBike")) do
 		task.spawn(runBike, b)

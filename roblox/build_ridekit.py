@@ -15,6 +15,7 @@ Writes:
   roblox/RideAnims_R6.rbxmx     the Blender clips as KeyframeSequences for the Animation Editor
   roblox/tests/bike_ref.luau    test copy of blender/anim/bike_ref.json
 """
+import hashlib
 import json
 import os
 
@@ -172,13 +173,19 @@ def single_file():
         + "\tend\n"
         "else\n"
         + indent(body_of("BikeClient.client.lua"))
-        + "\tlocal CollectionService = game:GetService(\"CollectionService\")\n"
+        + "\tprint(`RideKit {RIDEKIT_VERSION}: player script running`)\n"
+        "\tlocal CollectionService = game:GetService(\"CollectionService\")\n"
         "\tfor _, b in ipairs(CollectionService:GetTagged(\"RideKitBike\")) do\n\t\ttask.spawn(runBike, b)\n\tend\n"
         "\tCollectionService:GetInstanceAddedSignal(\"RideKitBike\"):Connect(function(b)\n\t\ttask.spawn(runBike, b)\n\tend)\n"
         "end\n")
+    # version stamp: the bike's Script and the player's LocalScript compare it, so an old copy
+    # left in one of them gets a clear warning instead of mysteriously old behaviour
+    version = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
+    text = guard + f'local RIDEKIT_VERSION: string? = "{version}"\n\n' + text[len(guard):]
     path = os.path.join(HERE, "RideKit.lua")
     with open(path, "w", encoding="utf-8") as f:
         f.write(text)
+    print("RideKit.lua version", version)
     print("wrote", path)
     for old in ("RideKit_Server.lua", "RideKit_Client.lua"):  # replaced by RideKit.lua
         if os.path.exists(os.path.join(HERE, old)):

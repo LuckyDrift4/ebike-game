@@ -10,6 +10,8 @@ local Physics = require(kit:WaitForChild("Physics"))
 local AnimPlayer = require(kit:WaitForChild("AnimPlayer"))
 local AnimData = require(kit:WaitForChild("AnimData"))
 
+local RIDEKIT_VERSION: string? = nil -- the paste-in RideKit.lua sets its version here
+
 -- @body (everything below is shared with the single-file RideKit_Client.lua)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -18,6 +20,16 @@ local ContextActionService = game:GetService("ContextActionService")
 local function runBike(bike: Model)
 	if not bike:GetAttribute("RideKitReady") then
 		bike:GetAttributeChangedSignal("RideKitReady"):Wait()
+	end
+
+	-- the bike's Script and this LocalScript must be the same RideKit.lua
+	local mine = RIDEKIT_VERSION
+	local theirs = bike:GetAttribute("RideKitVersion")
+	if mine and theirs and mine ~= theirs then
+		warn(
+			`RideKit: this LocalScript is version {mine} but the Script in {bike.Name} is version {theirs}. `
+				.. "Paste the same, newest RideKit.lua into both."
+		)
 	end
 
 	local player = Players.LocalPlayer

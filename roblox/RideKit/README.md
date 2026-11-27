@@ -64,6 +64,11 @@ out where it's running and does the bike's part or the player's part.
 If the Script ends up somewhere other than inside the bike, the Output says
 where it is and where it should go.
 
+When you press Play, the Output shows `RideKit <version>: bike script running`
+and `RideKit <version>: player script running`. The two versions must match.
+If one copy is older, you get a warning saying so. Paste the newest file into
+both.
+
 Use either this or the `RideKit.rbxmx` method below, not both.
 
 ## Set up with Insert from File

@@ -7,6 +7,10 @@
   checks `RunService:IsServer()` to pick its job. It replaced the separate
   server and client files after the user put the server code in the
   LocalScript, so the bike fell over and wouldn't move.
+- `build_ridekit.py` stamps a version (`RIDEKIT_VERSION`, a content hash) into
+  the file. Both copies print it, and the client warns if the bike's copy
+  differs. The user has left an old copy in the LocalScript before, which
+  showed the old leg pose.
 - The paste-in script must survive a copy that loses the start of the file.
   That has happened twice: it lost the first line and part of the second, and
   the user then deleted the broken top lines.
