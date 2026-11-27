@@ -53,8 +53,12 @@ local function measure(pose, steer)
 end
 
 local clips = AnimPlayer.prepare(AnimData)
-for _, name in ipairs({ "Ride", "Tuck", "Brake", "LeanRight", "LeanLeft", "Wheelie" }) do
+for _, name in ipairs({ "Ride", "Tuck", "Brake", "LeanRight", "LeanLeft", "Wheelie", "Stand", "Stoppie", "HangRight", "HangLeft" }) do
 	local clip = clips[name]
+	check(clip ~= nil, name .. ": clip exported")
+	if not clip then
+		continue
+	end
 	local worstH, worstF, minLook = 0, 0, 1
 	for t = 0, clip.length, 0.05 do
 		local h, f, look = measure(AnimPlayer.sample(clip, t), clip.steer)
@@ -62,7 +66,8 @@ for _, name in ipairs({ "Ride", "Tuck", "Brake", "LeanRight", "LeanLeft", "Wheel
 	end
 	print(string.format("%-9s hands->grips worst %.3f  feet->steps worst %.3f  head·forward min %+.2f", name, worstH, worstF, minLook))
 	check(worstH < 0.12, name .. ": hands on the grips")
-	check(worstF < 0.5, name .. ": feet at the steps")
+	local standing = name == "Stand" or name == "Stoppie"
+	check(worstF < (if standing then 0.15 else 0.5), name .. ": feet at the steps")
 	check(minLook > 0.6, name .. ": looking forward")
 end
 -- blends the client makes while riding straight (bars straight)
@@ -70,9 +75,23 @@ for _, w in ipairs({
 	{ tuck = 0.5, brake = 0, leanR = 0, leanL = 0, wheelie = 0 },
 	{ tuck = 0, brake = 0.7, leanR = 0, leanL = 0, wheelie = 0 },
 	{ tuck = 1, brake = 0, leanR = 0, leanL = 0, wheelie = 0.5 },
+	{ stand = 1, tuck = 0.5 },
+	{ stand = 0.5, hangR = 0.5 },
+	{ hangL = 1, tuck = 1 },
+	{ stoppie = 1, brake = 1 },
 }) do
 	local h = measure(AnimPlayer.pose(clips, 0.7, w), 0)
 	check(h < 0.15, "blend keeps the hands on the grips")
+	print(string.format("blend %s: hands->grips %.3f", (function()
+		local t = {}
+		for k, x in pairs(w) do
+			if x > 0 then
+				table.insert(t, k .. " " .. x)
+			end
+		end
+		table.sort(t)
+		return table.concat(t, ", ")
+	end)(), h))
 end
 -- half lean with half-turned bars
 local h = measure(AnimPlayer.pose(clips, 0.3, { tuck = 0, brake = 0, leanR = 0.5, leanL = 0, wheelie = 0 }), clips.LeanRight.steer * 0.5)

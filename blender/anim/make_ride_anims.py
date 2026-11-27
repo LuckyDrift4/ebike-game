@@ -11,7 +11,8 @@ Builds (in blender/anim/ride_anims.blend):
     the foot steps, and a look-at target
   * Damped Track constraints: arms -> grips, legs -> steps, head -> look-at
   * keyframed torso / look-at / steering for each clip on one timeline:
-      Ride (loop) | Tuck | Brake | LeanRight | LeanLeft | Wheelie
+      Ride (loop) | Tuck | Brake | LeanRight | LeanLeft | Wheelie | Stand | Stoppie
+      | HangRight | HangLeft
 The constrained pose is sampled ("visual keying") and written to
 roblox/anim/ride_anims.json as Roblox joint rotations, which RideKit plays and
 build_ridekit.py turns into Animation Editor KeyframeSequences.
@@ -99,10 +100,22 @@ def torso_rotation(lean, roll=0.0, twist=0.0):
     return T.to_quaternion()
 
 
-def shoulder_points(q_torso):
-    """World (Roblox) shoulder/hip joint positions for a RootJoint rotation."""
+def stand_offset(forward, up):
+    """RootJoint Transform translation that moves the torso this far forward / up
+    (studs, along the HumanoidRootPart's axes). The joint frame's y is the HRP's +Z
+    (back) and its z is the HRP's +Y (up)."""
+    return Vector((0.0, -forward, up))
+
+
+def torso_matrix(q_torso, t=None):
     par, c0, c1 = R6["Torso"]
-    torso = HRP @ c0 @ q_torso.to_matrix().to_4x4() @ c1.inverted()
+    T = Matrix.Translation(t if t is not None else Vector((0, 0, 0)))
+    return HRP @ c0 @ T @ q_torso.to_matrix().to_4x4() @ c1.inverted()
+
+
+def shoulder_points(q_torso, t=None):
+    """World (Roblox) shoulder/hip joint positions for a RootJoint rotation (+ translation)."""
+    torso = torso_matrix(q_torso, t)
     return {n: (torso @ R6[n][1]).translation for n in ("Right Arm", "Left Arm", "Right Leg", "Left Leg")}
 
 
@@ -238,12 +251,11 @@ def add_constraints(arm, targets, look):
     c.track_axis = "TRACK_NEGATIVE_Y"  # the face looks along -Y of the neck joint frame
 
 
-def aim_points(steer_angle, q_torso):
+def aim_points(steer_angle, q_torso, t=None):
     """Roblox-space aim point for each limb: the hand sits 0.5 outboard of the arm's
     axis and the foot 0.5 inboard of the leg's, along the torso's right vector, so aim
     the axis 0.5 the other way of the (steered) grip / step."""
-    c0, c1 = R6["Torso"][1], R6["Torso"][2]
-    torso = HRP @ c0 @ q_torso.to_matrix().to_4x4() @ c1.inverted()
+    torso = torso_matrix(q_torso, t)
     rt = (torso.to_3x3() @ Vector((1, 0, 0))).normalized()
     spv = rbx_cf(REF["steerPivot"])
     rot = spv @ Matrix.Rotation(-steer_angle, 4, "Y") @ spv.inverted()
@@ -255,6 +267,7 @@ def aim_points(steer_angle, q_torso):
 
 
 HAND_REACH = math.hypot(0.5, 1.5)  # shoulder joint -> hand centre on an R6 arm
+LEG_REACH = math.hypot(0.5, 2.0)  # hip joint -> foot centre on an R6 leg
 
 
 def best_lean(lean0, steer_angle, roll=0.0, twist0=0.0, lean_range=(-0.6, 1.0), w_lean=0.15):
@@ -278,6 +291,31 @@ def best_lean(lean0, steer_angle, roll=0.0, twist0=0.0, lean_range=(-0.6, 1.0), 
     return best[1], best[2]
 
 
+def best_stand(lean0, steer_angle=0.0, f_range=(-0.6, 1.6), u_range=(0.0, 2.2), lean_range=(-0.4, 1.3), w_lean=0.08):
+    """Standing on the pegs: R6 legs can't bend, so stand where both legs are exactly
+    leg's length from the pegs (feet on them) and both hands reach the grips. Search the
+    torso's lean and how far it moves forward / up off the seat."""
+    best = None
+    for i in range(int((lean_range[1] - lean_range[0]) / 0.02) + 1):
+        lean = lean_range[0] + i * 0.02
+        q = torso_rotation(lean)
+        for j in range(int((f_range[1] - f_range[0]) / 0.05) + 1):
+            f = f_range[0] + j * 0.05
+            for k in range(int((u_range[1] - u_range[0]) / 0.05) + 1):
+                u = u_range[0] + k * 0.05
+                t = stand_offset(f, u)
+                sp = shoulder_points(q, t)
+                g = aim_points(steer_angle, q, t)
+                eR = (g["gripR"] - sp["Right Arm"]).length - HAND_REACH
+                eL = (g["gripL"] - sp["Left Arm"]).length - HAND_REACH
+                fR = (Vector(REF["pegR"]) - sp["Right Leg"]).length - LEG_REACH
+                fL = (Vector(REF["pegL"]) - sp["Left Leg"]).length - LEG_REACH
+                cost = eR * eR + eL * eL + fR * fR + fL * fL + w_lean * (lean - lean0) ** 2
+                if best is None or cost < best[0]:
+                    best = (cost, lean, f, u)
+    return best[1], best[2], best[3]
+
+
 # --- clips ----------------------------------------------------------------------------
 STEER_ANIM = 0.24  # bars turned this much (rad) in the lean clips (matches RideKit MaxSteerAngle)
 CLIPS = [
@@ -288,13 +326,19 @@ CLIPS = [
     ("LeanRight", 181, 30, True),
     ("LeanLeft", 231, 30, True),
     ("Wheelie", 281, 30, True),
+    ("Stand", 331, 30, True),
+    ("Stoppie", 381, 30, True),
+    ("HangRight", 431, 30, True),
+    ("HangLeft", 481, 30, True),
 ]
 
 
-def key_torso(arm, frame, q):
+def key_torso(arm, frame, q, t=None):
     pb = arm.pose.bones["Torso"]
     pb.rotation_quaternion = q
     pb.keyframe_insert("rotation_quaternion", frame=frame)
+    pb.location = t if t is not None else Vector((0, 0, 0))  # = RootJoint Transform position
+    pb.keyframe_insert("location", frame=frame)
 
 
 def key_obj(ob, frame, loc=None, rot=None):
@@ -322,11 +366,11 @@ def animate(arm, steer, look, targets):
 
     report = {}
 
-    def pose_at(frame, lean, roll, tw, steer_angle):
+    def pose_at(frame, lean, roll, tw, steer_angle, t=None):
         q = torso_rotation(lean, roll, tw)
-        key_torso(arm, frame, q)
+        key_torso(arm, frame, q, t)
         key_obj(steer, frame, rot=steer_rot(steer_angle))
-        for name, p in aim_points(steer_angle, q).items():
+        for name, p in aim_points(steer_angle, q, t).items():
             if name in targets:
                 key_obj(targets[name], frame, loc=pt(p))
 
@@ -365,13 +409,41 @@ def animate(arm, steer, look, targets):
             pose_at(s + f, lean, sign * 0.2, tw, sign * STEER_ANIM)
             key_obj(look, s + f, loc=look_at(ahead=9.0, side=sign * 5.0, height=0.2))
 
-    # Wheelie: sat back, arms straight, eyes level (the bike pitches ~24 degrees up)
+    # Wheelie: sat back, arms straight, eyes level (the bike pitches ~35-40 degrees up)
     lean, tw = best_lean(-0.25, 0.0, lean_range=(-0.8, 0.6))
     report["Wheelie"] = (lean, tw)
     s = CLIPS[5][1]
     for f in (0, 30):
         pose_at(s + f, lean, 0, tw, 0.0)
-        key_obj(look, s + f, loc=look_at(height=-4.5))  # level once the front is up
+        key_obj(look, s + f, loc=look_at(height=-8.0))  # level once the front is up
+
+    # Stand: up on the pegs in the attack position (jumps, bumps, Q): knees can't bend on
+    # R6, so the hips go where the legs reach the pegs exactly; a little bob
+    lean, fw, upw = best_stand(0.75)
+    report["Stand"] = (lean, fw, upw)
+    s = CLIPS[6][1]
+    for f, du in ((0, 0.0), (15, -0.06), (30, 0.0)):
+        l2, f2, u2 = best_stand(lean, f_range=(fw - 0.3, fw + 0.3), u_range=(upw + du - 0.15, upw + du + 0.15), lean_range=(lean - 0.2, lean + 0.2), w_lean=0.3)
+        pose_at(s + f, l2, 0, 0.0, 0.0, stand_offset(f2, u2))
+        key_obj(look, s + f, loc=look_at(height=0.9))
+    KEY_FRAMES["Stand"] = (0, 15, 30)
+
+    # Stoppie: standing, pushing back against the bars as the rear lifts, eyes down the road
+    lean, fw, upw = best_stand(0.25, f_range=(-0.8, 1.0))
+    report["Stoppie"] = (lean, fw, upw)
+    s = CLIPS[7][1]
+    for f in (0, 30):
+        pose_at(s + f, lean, 0, 0.0, 0.0, stand_offset(fw, upw))
+        key_obj(look, s + f, loc=look_at(height=4.0))  # the bike's nose is down: look up to see ahead
+
+    # Hang: the bike is leaned over; body into the corner, inside shoulder low, head turned in
+    for idx, sign in ((8, 1), (9, -1)):
+        lean, tw = best_lean(0.42, 0.0, roll=sign * 0.3, twist0=sign * 0.14, w_lean=0.05)
+        report[CLIPS[idx][0]] = (lean, tw)
+        s = CLIPS[idx][1]
+        for f in (0, 30):
+            pose_at(s + f, lean, sign * 0.3, tw, 0.0)
+            key_obj(look, s + f, loc=look_at(ahead=10.0, side=sign * 6.5, height=-0.8))
 
     for ob in [arm, steer, look] + list(targets.values()):
         ad = ob.animation_data
@@ -409,9 +481,10 @@ def refine_hands(targets, iterations=6):
 
 
 def sample_visual(arm, frame):
-    """Constraint-evaluated local rotation of every bone (what 'visual keying' bakes)."""
+    """Constraint-evaluated local rotation of every bone (what 'visual keying' bakes),
+    and the torso's translation (it moves off the seat when standing)."""
     bpy.context.scene.frame_set(frame)
-    out = {}
+    out, pos = {}, {}
     for name in ORDER:
         pb = arm.pose.bones[name]
         parent = pb.parent
@@ -419,16 +492,23 @@ def sample_visual(arm, frame):
         local = (parent.matrix @ rest_local).inverted() @ pb.matrix
         q = local.to_quaternion().normalized()
         out[name] = [round(q.x, 6), round(q.y, 6), round(q.z, 6), round(q.w, 6)]  # Roblox order
-    return out
+        t = local.translation
+        if name == "Torso" and t.length > 1e-4:
+            pos[name] = [round(t.x, 5), round(t.y, 5), round(t.z, 5)]
+    return out, pos
 
 
 def export(arm):
     clips = {}
     for name, start, length, loop in CLIPS:
-        step = 3 if name == "Ride" else length
+        step = 3 if name == "Ride" else (15 if name == "Stand" else length)
         keys = []
         for f in range(0, length + 1, step):
-            keys.append({"t": round(f / FPS, 4), "pose": sample_visual(arm, start + f)})
+            pose, pos = sample_visual(arm, start + f)
+            key = {"t": round(f / FPS, 4), "pose": pose}
+            if pos:
+                key["pos"] = pos
+            keys.append(key)
         clips[name] = {"length": round(length / FPS, 4), "loop": loop, "keys": keys,
                        "steer": STEER_ANIM if name == "LeanRight" else (-STEER_ANIM if name == "LeanLeft" else 0.0)}
     out = {"rig": "R6", "bike": REF["bike"], "fps": FPS, "joints": ORDER, "clips": clips,
@@ -553,8 +633,10 @@ def preview(arm, steer, look, objs):
     right_b = (P.to_3x3() @ RIGHT).normalized()
     root.rotation_mode = "QUATERNION"
 
+    front_ground = pt(Vector(REF["frontAxle"]) - UP * REF["radF"])
+
     def pose_root(frame, roll=0.0, pitch=0.0):
-        pivot = ground + fwd_b * 2.5 if roll else rear_axle
+        pivot = ground + fwd_b * 2.5 if roll else (front_ground if pitch < 0 else rear_axle)
         R = (Matrix.Translation(pivot) @ Matrix.Rotation(roll, 4, fwd_b) @ Matrix.Rotation(pitch, 4, right_b)
              @ Matrix.Translation(-pivot))
         root.matrix_world = R
@@ -562,8 +644,8 @@ def preview(arm, steer, look, objs):
         root.keyframe_insert("rotation_quaternion", frame=frame)
 
     for name, start, length, loop in CLIPS:
-        roll = {"LeanRight": -0.45, "LeanLeft": 0.45}.get(name, 0.0)
-        pitch = 0.42 if name == "Wheelie" else 0.0
+        roll = {"LeanRight": -0.25, "LeanLeft": 0.25, "HangRight": -0.6, "HangLeft": 0.6}.get(name, 0.0)
+        pitch = {"Wheelie": 0.65, "Stoppie": -0.3}.get(name, 0.0)
         pose_root(start, roll, pitch)
         pose_root(start + length, roll, pitch)
     # ground + light + camera
@@ -626,7 +708,7 @@ def main():
     report = animate(arm, steer, look, targets)
     print("hands off the grips after refining (worst, studs): %.3f" % refine_hands(targets))
     out = export(arm)
-    print("torso lean / twist per clip:", {k: (round(a, 2), round(b, 2)) for k, (a, b) in report.items()})
+    print("torso lean / twist (or lean / forward / up) per clip:", {k: tuple(round(x, 2) for x in v) for k, v in report.items()})
     print("exported", len(out["clips"]), "clips ->", os.path.join(ROOT, "roblox", "anim", "ride_anims.json"))
     objs = stand_in(steer)
     preview(arm, steer, look, objs)

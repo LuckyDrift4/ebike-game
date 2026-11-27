@@ -61,7 +61,8 @@ for _, bikeName in ipairs({ "surron1", "surron2" }) do
 	local steerPos = steerHinge.cf.Position
 	local swingPos = swingHinge.cf.Position
 	local center = (front.cf.Position + rear.cf.Position) / 2 + up * (radR * 0.7)
-	local chassisCF = CFrame.lookAt(center, center + fwd)
+	local com = Rig.chassisCenter(front.cf.Position, rear.cf.Position, radR, fwd, up, Config)
+	local chassisCF = CFrame.lookAt(com, com + fwd)
 	local steerPivotCF = CFrame.fromMatrix(steerPos, right, steerAxis)
 	local ctx = {
 		frontPos = front.cf.Position, rearPos = rear.cf.Position, radF = radF, radR = radR,

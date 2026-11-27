@@ -105,6 +105,8 @@ C.__mul = function(a, b)
 	end
 	return a.p + rotv(a, b)
 end
+C.__add = function(a, v) return mk(a.p + v, a.x, a.y, a.z) end
+C.__sub = function(a, v) return mk(a.p - v, a.x, a.y, a.z) end
 function C.Inverse(c)
 	-- transpose rows
 	local x = V.new(c.x.X, c.y.X, c.z.X)

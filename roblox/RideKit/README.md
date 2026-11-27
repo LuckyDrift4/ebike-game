@@ -3,15 +3,32 @@
 `RideKit.rbxmx` is a folder of scripts you drop inside a bike model. It turns
 the static, anchored bike into a rideable one:
 
-- **Riding:** throttle, brake, reverse, steering, lean into corners and
-  wheelies, on raycast suspension.
-- **Moving parts:** the wheels spin, the fork and bars turn, the front fork
-  compresses and the swingarm moves with the suspension.
+- **Physics:** a real dirt-bike model, not a scripted glide.
+  - Each wheel has its own spring and damper: the fork dives under braking and
+    the rear squats under power.
+  - The tyres grip by load and by surface (asphalt, grass, dirt, sand, mud,
+    snow, ice). Ask too much of them and they slide.
+  - Steering turns the front wheel. The bike leans exactly as far as the turn
+    needs, the lean you'd see in real life.
+  - Round wheels roll up kerbs. Jumps fly on real ballistics, and in the air
+    the rider lines the bike up with the landing.
+- **Wheelies and stoppies:** they use a real balance point.
+  - Hold E with the throttle and the front comes up. The throttle raises it,
+    letting off lowers it, and the rear brake (S) brings it down. Past the
+    balance point it loops.
+  - Hold Q and brake for a stoppie.
+  - A balance bar and timer on screen show your wheelie, with a best time.
+- **Crashes:** lean too far, wash out the front on ice, loop a wheelie, go over
+  the bars or hit a wall, and you're thrown off. The bike falls over. Walk up
+  and press E to pick it up.
+- **Moving parts:** the wheels spin (and lock or spin up), the bars turn, the
+  front fork slides and the swingarm moves with the suspension.
 - **Rider animation:** made in Blender (`blender/anim/ride_anims.blend`).
-  There are six keyframed R6 clips: ride, tuck, brake, lean left, lean right
-  and wheelie. RideKit plays the Blender keyframes and blends between the clips
-  with throttle, brake, steering and wheelie. Every client plays them, so
-  nothing needs uploading.
+  There are ten keyframed R6 clips: ride, tuck, brake, bars turned left and
+  right, body hanging into left and right corners, wheelie, stoppie and
+  standing on the pegs. RideKit plays the Blender keyframes and blends them by
+  what the bike is actually doing. Every client plays them, so nothing needs
+  uploading.
 
 It works with both bike models:
 
@@ -57,8 +74,19 @@ Use either this or the `RideKit.rbxmx` method below, not both.
 |---|---|---|---|
 | Throttle / brake / reverse | W / S | triggers | thumbstick |
 | Steer | A / D | left stick | thumbstick |
-| Wheelie (hold while riding) | E | X | Wheelie button |
+| Wheelie (hold, with throttle) | E | X | Wheelie button |
+| Stoppie (hold, with brake) / stand up | Q | Y | Stoppie button |
 | Get off | Space | A | Jump button |
+
+**Wheelies:**
+- Hold E and the throttle. Keep holding the throttle to go higher, or let off
+  to come down.
+- The bar at the top shows your angle. Green is the sweet spot. Red is past the
+  balance point, where it loops.
+- With `WheelieAssist = true` (the default), the rider covers the rear brake so
+  you can't loop it. Set it to `false` for the real thing.
+- A/D lean it round. In the air, E and Q tip the nose up or down, and the
+  throttle spins the rear wheel up.
 
 ## Tuning
 
@@ -71,16 +99,30 @@ The rider is placed automatically:
 
 The Output line `Grips from "...", pegs from "..."` shows which parts were
 used. To adjust things, open `RideKit > Config` (or the top of the server
-script):
+script). The comments there explain each value. The ones you'll most likely
+change:
 
+- **Motor:** `MaxSpeed`, `Acceleration`.
+- **Brakes:** `FrontBrake`, `RearBrake`.
+- **Grip:** `Grip` multiplies every surface's grip. `SlideGrip` sets how
+  slippery a sliding tyre gets, so it controls the length of drifts.
+- **Handling:** `MaxLean`, `MaxSteerAngle`, `SteerSpeed`.
+- **Suspension:** `SuspensionTravel`, `SpringRate`, `Damping`,
+  `ReboundDamping`.
+- **Wheelie:**
+  - `WheelieAssist` turns the loop protection on or off.
+  - `WheelieAimUp` and `WheelieAimDown` set how fast the front rises and falls.
+  - `WheelieSweetSpot` sets how far below the balance point the assist holds
+    you.
+- **Air:** `AirAssist` makes the rider line up for landings. With it off, E
+  and Q rotate the bike directly.
+- **Crashes:** `Crashes = false` turns them off. `CrashLean` and `CrashImpact`
+  set how hard you have to go before you come off.
 - **Rider position:** `SeatForward` slides the rider toward the bars.
   `SeatHeight` is `"auto"` or a fixed number.
 - **Hands and feet:** `GripInset` and `PegInset` move them inwards from the
   ends of the bar and pegs.
-- **Body:** `Pose.TorsoLean` sets how far the rider leans over the bars, and
-  `Pose.TurnLean`, `Pose.HeadTurn` and the others shape the body.
-- **Handling:** `MaxSpeed`, `Acceleration`, `SteerRate`, `MaxLean`,
-  `WheelieAngle` and the suspension values.
+- **HUD:** `ShowHud = false` hides it.
 
 The R6 default `Animate` script would fight the pose while seated, so it is
 paused for the local rider while riding and turned back on when they get off.
@@ -88,8 +130,8 @@ paused for the local rider while riding and turned back on when they get off.
 ## Optional: the clips in the Animation Editor
 
 `RideAnims_R6.rbxmx` holds the same Blender clips as KeyframeSequences, named
-`RideRide`, `RideTuck`, `RideBrake`, `RideLeanRight`, `RideLeanLeft` and
-`RideWheelie`.
+`RideRide`, `RideTuck`, `RideBrake`, `RideLeanRight`, `RideLeanLeft`,
+`RideWheelie`, `RideStand`, `RideStoppie`, `RideHangRight` and `RideHangLeft`.
 
 1. Insert the file into your R6 dummy (`Rig`), then move the sequences into a
    folder named `AnimSaves` inside the rig. Create the folder if it isn't there.
@@ -103,12 +145,26 @@ publish them yourself.
 
 - **Seat:** the bike gets its own invisible `VehicleSeat` (`RideKit_Seat`),
   placed on the part whose name contains "seat".
+- **Mass:** all the weight sits in the invisible `RideKit_Chassis` box, at the
+  bike and rider's centre of mass. That box is also what hits walls. Every
+  other part, and the rider while seated, is massless, so every avatar rides
+  the same. Invisible `RideKit_WheelGuard` parts inside the wheels stop them
+  going through walls and catch the bike when it falls over.
 - **When parked:** the bike is anchored. When someone gets on, it unanchors and
   that player's client simulates it. When they get off, it rolls to a stop
-  and parks again.
+  and parks again. Jump off at speed and it falls over instead.
 - **R15 avatars:** they can ride too, but they use the default sit pose,
   because the riding animation is for R6.
 - **Something moves wrong:** if a part spins or steers when it shouldn't,
   check the counts in the Output. You can rename the part, since parts with
   "fork", "handlebar" or "lever" in the name steer, and "swingarm", "chain" or
   "mudguard" behind the pivot move with the swingarm. Or send me a screenshot.
+- **Tests:** the physics is tested outside Roblox in a small rigid-body world
+  (`roblox/tests/sim.luau`, `physics_test.luau`):
+  - **Basics:** settling, top speed, braking, cornering lean at three speeds
+    and three frame rates.
+  - **Surfaces:** ice, sand and mud.
+  - **Wheelies:** assisted, unassisted, looping out, saving it with the rear
+    brake, steering one, and one at 30 fps.
+  - **Stoppies, jumps and air control.**
+  - **Terrain:** hills, bumps, kerbs, drops, a wall and a 30° descent.

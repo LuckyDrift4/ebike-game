@@ -2,7 +2,7 @@
 
 local Config = (function()
 	-- RideKit settings. Tweak these in Studio while play-testing.
-	-- Distances are in studs, speeds in studs/second, angles in degrees unless noted.
+	-- Distances are in studs, speeds in studs/second (shown as km/h), angles in degrees.
 	local Config = {
 		-- names of the parts RideKit looks for inside the bike model
 		WheelPartName = "Wheel", -- the two invisible cylinder wheels
@@ -11,32 +11,81 @@ local Config = (function()
 		SeatPartKeyword = "seat", -- part whose name contains this is the seat (else the highest seat-shaped part)
 		FallbackRake = 26, -- steering-axis angle if there is no TripleTreeHinge
 
-		-- engine / handling
-		MaxSpeed = 70, -- ~70 km/h at Roblox scale
-		ReverseSpeed = 10,
-		Acceleration = 34,
-		BrakeDecel = 70,
-		CoastDecel = 5,
-		SteerRate = 2.4, -- heading change (rad/s) at full lock
-		FullTurnSpeed = 10, -- below this speed steering is weaker (a bike can't turn on the spot)
-		MaxSteerAngle = 17, -- visual bar angle at walking pace (less at speed; the lean clips are posed at 14)
-		MaxLean = 35, -- lean into corners at speed
-		LeanFullSpeed = 30,
-		LeanResponse = 6,
-		SideGrip = 10, -- how quickly sideways sliding is killed (1/s)
+		-- motor (electric: full pull from a standstill, then constant power)
+		MaxSpeed = 75,
+		Acceleration = 55, -- pull at low speed (studs/s²; gravity is 196)
+		PowerBand = 0.4, -- full pull up to this fraction of MaxSpeed
+		ReverseSpeed = 8, -- hold S when stopped
+		CoastDecel = 4, -- motor braking with the throttle closed
+		RollingDrag = 1.5,
 
-		-- suspension (raycast)
-		SuspensionTravel = 0.5,
-		SpringRate = 1.0, -- 1.0 = sits at half travel; higher = stiffer
-		Damping = 0.75, -- 1.0 = no rebound at all; lower = springier (stays stable)
-		WeightTransfer = 0.0012, -- nose dive under braking / squat under throttle (rad per stud/s²)
-		AlignResponsiveness = 40,
-		ChassisDensity = 0.7,
+		-- brakes (S brakes both wheels; how hard, before the tyres give up)
+		FrontBrake = 95,
+		RearBrake = 55,
 
-		-- wheelie (hold E on keyboard / X on gamepad / on-screen button on mobile)
+		-- tyres
+		Grip = 1.0, -- times the surface grip: asphalt 1.05, concrete 1, grass 0.7, dirt 0.65, sand 0.5, mud 0.4, ice 0.15
+		SlideGrip = 0.8, -- grip left once a tyre slides (lower = longer drifts)
+		LateralStiffness = 0.9, -- how firmly a gripping tyre stops sideways sliding (0..1)
+		TyreProfile = 0.35, -- radius of the tyre's round cross-section (a leaned bike rolls on its shoulder)
+
+		-- steering and lean (the rider holds the lean that balances the turn)
+		MaxSteerAngle = 17, -- bar angle at walking pace; less at speed so the lean never passes MaxLean
+		SteerSpeed = 1.8, -- how fast the bars turn (rad/s)
+		MaxLean = 38,
+		RollStiffness = 7, -- how firmly the rider pulls the bike to the balancing lean
+		RollRate = 3.5, -- fastest lean change (rad/s)
+		RollTorque = 3, -- how much the rider can do to hold it up (x weight x studs)
+
+		-- suspension (a spring and damper per wheel)
+		SuspensionTravel = 0.8,
+		SpringRate = 1.0, -- 1 = sits at half travel; higher = stiffer
+		Damping = 0.55, -- compression damping (1 = critical); lower = softer over bumps
+		ReboundDamping = 0.9, -- extension damping; higher = no kick back off jump lips
+		MaxSuspensionSpeed = 40,
+
+		-- body: the bike and rider's weight sit in the invisible RideKit_Chassis box
+		ChassisDensity = 1.6, -- bike + rider: about twice a walking avatar
+		ComHeight = 2.0, -- centre of mass above the axles, in wheel radii (bike + rider: about hip height)
+		ComBack = 0.04, -- centre of mass toward the rear wheel, fraction of the wheelbase
+
+		-- wheelie: hold E (gamepad X) with the throttle on. Throttle raises the front, off lowers
+		-- it, S is the rear brake. The balance bar shows how close you are to the balance point.
 		WheelieKeys = { Enum.KeyCode.E, Enum.KeyCode.ButtonX },
-		WheelieAngle = 24,
-		WheelieMinSpeed = 6,
+		WheelieMinSpeed = 5,
+		WheelieAssist = true, -- true: covers the rear brake so you never go past the balance point
+		-- false: hold the throttle too long and you loop it
+		WheelieSweetSpot = 4, -- degrees below the balance point the assist holds you at
+		WheelieAimUp = 1.1, -- how fast the front rises with the throttle on (rad/s)
+		WheelieAimDown = 0.55, -- how fast it comes down with the throttle off
+		WheelieLift = 2.6, -- how hard the motor lifts the front
+		RiderShift = 0.45, -- how far the rider moves their weight back or forward (studs)
+		WheelieControl = 7, -- how tightly the rider holds the angle
+		WheelieSteer = 0.5, -- steering in a wheelie, times normal (you lean it round)
+		LoopOutAngle = 22, -- degrees past the balance point before it's gone
+
+		-- stoppie: hold Q (gamepad Y) and brake. Q on its own: stand up / weight forward
+		StoppieKeys = { Enum.KeyCode.Q, Enum.KeyCode.ButtonY },
+		StoppieMinSpeed = 14,
+		StoppieAngle = 20, -- highest the rear wheel goes (degrees)
+		StoppieAimUp = 1.0, -- how fast the rear rises while braking (rad/s)
+		StoppieAimDown = 1.4, -- how fast it comes down when you let go
+		StoppieLift = 2.0, -- the rider's shove that gets the rear up
+
+		-- in the air the rider lines the bike up with the way it's flying; E / Q lift / drop the
+		-- nose, throttle / brake spin the rear wheel up / stop it, A / D turn it a little
+		AirAssist = true, -- false: no lining up (nor holding it steady off lips), E / Q rotate it directly
+		AirControl = 6, -- how quickly the rider lines it up (rad/s)
+		AirLean = 0.6, -- how far E / Q tip it from the flight path (rad)
+		AirPitch = 14, -- strongest rotation the rider can make (rad/s²)
+		AirThrottle = 2.5,
+		AirYaw = 1.5,
+
+		-- crashes: you come off and the bike falls over
+		Crashes = true,
+		CrashLean = 72, -- lean that can't be saved
+		CrashImpact = 30, -- speed lost at once (a wall) that throws you off
+		DismountCrashSpeed = 25, -- jump off faster than this and the bike falls
 
 		-- rider placement on the seat (R6)
 		SeatHeight = "auto", -- "auto" = as low as needed for the feet to reach the pegs, or a number
@@ -46,174 +95,749 @@ local Config = (function()
 		PegInset = 0.15, -- feet sit this far in from the ends of the foot-peg bar
 
 		-- rider animation (keyframed in Blender: blender/anim/ride_anims.blend)
-		AnimBlendSpeed = 7, -- how fast the rider moves between ride / tuck / brake / lean / wheelie
+		AnimBlendSpeed = 8, -- how fast the rider moves between the clips
 		Pose = { TorsoLean = 0.35 }, -- forward lean the seat position is fitted for (matches the Blender clips)
+
+		-- on-screen speed, wheelie timer and balance bar for the rider
+		ShowHud = true,
 	}
 
 	return Config
 end)()
 local Physics = (function()
-	-- RideKit.Physics: raycast-suspension bike. Runs on whoever owns the bike's
-	-- physics: the rider's client while riding, the server while it coasts to a stop.
+	-- RideKit.Physics: dirt-bike dynamics on one rigid body (RideKit_Chassis).
+	-- Runs on whoever owns the bike's physics: the rider's client while riding,
+	-- the server while it rolls to a stop. Roblox moves the body (gravity,
+	-- collisions); every frame this adds impulses where real forces act:
+	--
+	--   * suspension: a spring and damper per wheel. They're solved implicitly and
+	--     together, so they stay stable at any frame rate and the load moves between
+	--     the wheels: the fork dives under braking and the rear squats under power.
+	--   * wheels: round in side view (rays fan around each wheel, so it rolls up kerbs)
+	--     and round in section (a leaned bike rolls on the tyre's shoulder).
+	--   * tyres: at each contact patch, drive and brake force plus sideways grip,
+	--     limited by a friction circle (grip x load x surface). Ask too much and
+	--     the tyre slides: drifts on dirt, lowsides on ice.
+	--   * steering: the front wheel turns and the bike follows its wheels. Lock
+	--     shrinks with speed, so the balancing lean never passes MaxLean.
+	--   * balance: the rider holds the lean that balances the turn.
+	--   * pitch is free: wheelies, stoppies and air control come from the rider
+	--     moving their weight and from throttle and brakes. The rest is physics:
+	--     the bike pivots on the tyre, falls back down, or loops over.
+	--   * crashes: lean too far, loop a wheelie, or hit a wall.
+	--
+	-- All the mass is in RideKit_Chassis (every other part, and the rider while
+	-- seated, is massless), so its box inertia is the bike's inertia.
 
 	local Physics = {}
 	Physics.__index = Physics
+
+	-- tyre grip by surface (Enum.Material names); anything else 0.9
+	local SURFACE_GRIP = {
+		Asphalt = 1.05,
+		Concrete = 1.0,
+		Pavement = 1.0,
+		Brick = 0.95,
+		Cobblestone = 0.85,
+		Slate = 0.95,
+		Rock = 0.9,
+		Basalt = 0.95,
+		Limestone = 0.9,
+		Sandstone = 0.85,
+		Granite = 0.95,
+		Marble = 0.75,
+		Wood = 0.85,
+		WoodPlanks = 0.85,
+		Plastic = 0.85,
+		SmoothPlastic = 0.8,
+		Fabric = 0.85,
+		Metal = 0.75,
+		DiamondPlate = 0.85,
+		CorrodedMetal = 0.8,
+		Foil = 0.6,
+		Glass = 0.5,
+		Grass = 0.7,
+		LeafyGrass = 0.65,
+		Ground = 0.65,
+		Mud = 0.4,
+		Sand = 0.5,
+		Salt = 0.6,
+		Snow = 0.35,
+		Ice = 0.15,
+		Glacier = 0.2,
+		CrackedLava = 0.85,
+		Pebble = 0.6,
+		Rubber = 1.1,
+		Carpet = 0.9,
+		Cardboard = 0.7,
+		Plaster = 0.85,
+		Leather = 0.8,
+		ClayRoofTiles = 0.85,
+		RoofShingles = 0.85,
+	}
+
+	-- rays fanned around each wheel's rim (0 = straight down the suspension)
+	local FAN = { math.rad(28), -math.rad(28), math.rad(56), -math.rad(56) }
+
+	local function clamp(x, a, b)
+		return math.max(a, math.min(b, x))
+	end
 
 	function Physics.new(bike: Model, cfg)
 		local self = setmetatable({}, Physics)
 		self.bike = bike
 		self.cfg = cfg
 		self.chassis = bike:WaitForChild("RideKit_Chassis") :: BasePart
-		self.align = self.chassis:WaitForChild("RideKit_Align") :: AlignOrientation
+		local fa = bike:GetAttribute("RK_FrontAxle") :: Vector3
+		local ra = bike:GetAttribute("RK_RearAxle") :: Vector3
 		self.wheels = {
-			{ localPos = bike:GetAttribute("RK_FrontAxle"), radius = bike:GetAttribute("RK_RadiusF") },
-			{ localPos = bike:GetAttribute("RK_RearAxle"), radius = bike:GetAttribute("RK_RadiusR") },
+			{ axle = fa, radius = bike:GetAttribute("RK_RadiusF") :: number },
+			{ axle = ra, radius = bike:GetAttribute("RK_RadiusR") :: number },
 		}
-		self.comp = { cfg.SuspensionTravel * 0.5, cfg.SuspensionTravel * 0.5 }
+		self.wheelbase = (fa - ra).Magnitude
 		self.params = RaycastParams.new()
 		self.params.FilterType = Enum.RaycastFilterType.Exclude
 		self.params.FilterDescendantsInstances = { bike }
-		self.params.IgnoreWater = false
-		self:resetHeading()
+		self.params.IgnoreWater = true -- the wheels sink, they don't ride on water
+		self:reset()
 		return self
 	end
 
-	-- re-read heading from the chassis (call when taking over the physics)
-	function Physics:resetHeading()
-		local look = self.chassis.CFrame.LookVector
-		self.yaw = math.atan2(-look.X, -look.Z)
-		self.pitch = 0
-		self.roll = 0
-		self.wheelie = 0
-		self.accel = 0
-		self.lastVF = nil
+	-- call when the physics changes hands (mount / dismount)
+	function Physics:reset()
+		self.comp = { 0, 0 }
+		self.load = { 0, 0 }
+		self.steerAngle = 0
+		self.crashed = false
+		self.crashReason = nil
+		self.fallSide = 1
+		self.washTime = 0
+		self.wheelieOn = false
+		self.aim = 0
+		self.aimI = 0
+		self.stoppieOn = false
+		self.aimS = 0
+		self.sliding = { false, false }
+		self.lastHs = nil
+		self.impact = 0
+		self.airTime = 0
+		self.out = {
+			speed = 0,
+			steerAngle = 0,
+			lean = 0,
+			comp = { 0, 0 },
+			contact = { false, false },
+			slip = { 0, 0 },
+			wheelie = false,
+			wheelieAngle = 0,
+			balanceAngle = 0.6,
+			aim = 0,
+			stoppie = false,
+			stoppieAngle = 0,
+			airborne = false,
+			airTime = 0,
+			crashed = false,
+			crashReason = nil,
+			rearBrakeAssist = 0,
+			braking = false,
+			standing = false,
+		}
 	end
+	Physics.resetHeading = Physics.reset -- old name
 
 	function Physics:setIgnore(list: { Instance })
 		self.params.FilterDescendantsInstances = list
 	end
 
-	-- suspension compression for wheel i (0 = fully extended) and the ground hit
-	function Physics:probe(i: number): (number, RaycastResult?)
+	-- steering lock at this speed: the balancing lean at full lock is MaxLean
+	-- (balance: sin(lean) = v^2 tan(steer) / (g wheelbase))
+	function Physics.lockAt(cfg, wheelbase: number, speed: number): number
+		local v = math.max(math.abs(speed), 1)
+		local g = workspace.Gravity
+		return math.min(math.rad(cfg.MaxSteerAngle), math.atan(wheelbase * g * math.sin(math.rad(cfg.MaxLean)) / (v * v)))
+	end
+
+	-- rigid-body helpers (state cached at the start of step) ---------------------------
+	function Physics:invI(vec: Vector3): Vector3
+		local l = self.cf:VectorToObjectSpace(vec)
+		local I = self.I
+		return self.cf:VectorToWorldSpace(Vector3.new(l.X / I.X, l.Y / I.Y, l.Z / I.Z))
+	end
+
+	function Physics:inertiaAbout(axis: Vector3): number
+		local l = self.cf:VectorToObjectSpace(axis)
+		local I = self.I
+		return l.X * l.X * I.X + l.Y * l.Y * I.Y + l.Z * l.Z * I.Z
+	end
+
+	-- effective mass of the body at world point p along unit direction n
+	function Physics:effMass(p: Vector3, n: Vector3): number
+		local r = p - self.com
+		return 1 / (1 / self.m + n:Dot(self:invI(r:Cross(n)):Cross(r)))
+	end
+
+	function Physics:pointVel(p: Vector3): Vector3
+		return self.v + self.w:Cross(p - self.com)
+	end
+
+	function Physics:impulse(J: Vector3, at: Vector3)
+		self.v += J / self.m
+		self.w += self:invI((at - self.com):Cross(J))
+		self.chassis:ApplyImpulseAtPosition(J, at)
+	end
+
+	function Physics:angImpulse(L: Vector3)
+		self.w += self:invI(L)
+		self.chassis:ApplyAngularImpulse(L)
+	end
+
+	-- change the spin about `axis` by dw and nothing else (a plain torque about a tilted axis
+	-- would also tip the bike in pitch); returns the size of the angular impulse used
+	function Physics:spin(axis: Vector3, dw: number): number
+		local l = self.cf:VectorToObjectSpace(axis * dw)
+		local I = self.I
+		local L = self.cf:VectorToWorldSpace(Vector3.new(l.X * I.X, l.Y * I.Y, l.Z * I.Z))
+		self:angImpulse(L)
+		return L.Magnitude
+	end
+
+	--[[ Ground under wheel i. Returns
+	    compression (0 = fully extended, SuspensionTravel = fully compressed),
+	    the RaycastResult (nil in the air), the wheel centre, the contact normal and
+	    the contact point. Also used by the client to move the forks and swingarm. ]]
+	function Physics:probe(i: number)
 		local cfg = self.cfg
 		local w = self.wheels[i]
 		local cf = self.chassis.CFrame
-		local upv = cf.UpVector
+		local up, fwd, right = cf.UpVector, cf.LookVector, cf.RightVector
+		local R = w.radius
 		local travel = cfg.SuspensionTravel
-		local mount = cf:PointToWorldSpace(w.localPos) + upv * (travel * 0.5)
-		local hit = workspace:Raycast(mount, -upv * (travel + w.radius + 0.6), self.params)
+		local E = cf:PointToWorldSpace(w.axle) - up * (travel * 0.5) -- axle at full extension
+		local best, bestHit, bestN, bestP = 0, nil, nil, nil
+
+		-- straight down: a round-section tyre on locally flat ground
+		local hit = workspace:Raycast(E + up * (travel + 0.5), -up * (travel + R + 3), self.params)
 		if hit then
-			local dist = (hit.Position - mount).Magnitude
-			return math.clamp(travel + w.radius - dist, 0, travel * 1.6), hit
+			local n = hit.Normal
+			local cosT = up:Dot(n)
+			if cosT > 0.3 then
+				local profile = math.min(cfg.TyreProfile, R * 0.5)
+				local inPlane = n - right * n:Dot(right) -- ground normal seen in the wheel's plane
+				local k = inPlane.Magnitude
+				local c = ((R - profile) * k + profile - (E - hit.Position):Dot(n)) / cosT
+				if c > best then
+					best, bestHit, bestN = c, hit, n
+					bestP = E + up * c - (if k > 1e-3 then inPlane / k else n) * (R - profile) - n * profile
+				end
+			end
 		end
-		return 0, nil
+
+		-- fanned around the rim: kerbs, steps and lips meet the tyre before the axle is over them
+		local O = E + up * travel
+		for _, th in ipairs(FAN) do
+			local s, co = math.abs(math.sin(th)), math.cos(th)
+			local d = -up * co + fwd * math.sin(th)
+			local h = workspace:Raycast(O, d * math.min(R / s, travel + R), self.params)
+			if h then
+				local t = (h.Position - O).Magnitude
+				local disc = R * R - t * t * s * s
+				if disc >= 0 then
+					local c = travel - t * co + math.sqrt(disc)
+					if c > best then
+						local W = E + up * c
+						local n = W - h.Position
+						if n.Magnitude > 1e-3 then
+							best, bestHit, bestN, bestP = c, h, n.Unit, h.Position
+						end
+					end
+				end
+			end
+		end
+
+		if not bestHit then
+			return 0, nil, E, nil, nil
+		end
+		best = math.min(best, travel * 1.8)
+		return best, bestHit, E + up * best, bestN, bestP
 	end
 
-	-- one physics step. throttle/steer are -1..1; returns forward speed
-	function Physics:step(dt: number, throttle: number, steer: number, wheelieHeld: boolean, hasDriver: boolean): number
+	-- motor pull per unit throttle at this speed, and the air drag it works against
+	-- (electric: full pull up to PowerBand x MaxSpeed, then constant power; drag = pull at MaxSpeed)
+	function Physics:motor(speed: number): (number, number)
+		local cfg = self.cfg
+		local vb = cfg.MaxSpeed * cfg.PowerBand
+		local v = math.max(speed, 0)
+		return cfg.Acceleration * math.min(1, vb / math.max(v, 1)), cfg.Acceleration * vb / cfg.MaxSpeed ^ 3 * v * v
+	end
+
+	local function gripOf(hit, cfg): number
+		local name = if hit.Material then hit.Material.Name else ""
+		return (SURFACE_GRIP[name] or 0.9) * cfg.Grip
+	end
+
+	function Physics:crash(reason: string)
+		if not self.crashed and self.cfg.Crashes then
+			self.crashed = true
+			self.crashReason = reason
+			self.fallSide = if (self.out.lean or 0) >= 0 then 1 else -1
+		end
+	end
+
+	--[[ One step. input = {
+	      throttle 0..1, brake 0..1, steer -1..1 (+ = right),
+	      leanBack 0..1 (wheelie), leanForward 0..1 (stoppie / stand), driver = bool }
+	  Returns self.out. ]]
+	function Physics:step(dt: number, input)
 		local cfg = self.cfg
 		local ch = self.chassis
-		dt = math.clamp(dt, 1 / 240, 1 / 20)
-		local mass = ch.AssemblyMass
+		local h = clamp(dt, 1 / 240, 1 / 15)
+		local cf = ch.CFrame
+		local m = ch.AssemblyMass
+		local s = ch.Size
+		self.cf = cf
+		self.m = m
+		self.com = ch.AssemblyCenterOfMass
+		self.v = ch.AssemblyLinearVelocity
+		self.w = ch.AssemblyAngularVelocity
+		local v0, w0 = self.v, self.w -- as the frame starts
+		self.I = Vector3.new(
+			m / 12 * (s.Y * s.Y + s.Z * s.Z),
+			m / 12 * (s.X * s.X + s.Z * s.Z),
+			m / 12 * (s.X * s.X + s.Y * s.Y)
+		)
 		local g = workspace.Gravity
-		local upv = ch.CFrame.UpVector
+		local up, fwd, right = cf.UpVector, cf.LookVector, cf.RightVector
+		local Y = Vector3.yAxis
+		local L = self.wheelbase
 		local travel = cfg.SuspensionTravel
-		local k = cfg.SpringRate * g / travel -- per wheel; two wheels hold the bike at half travel
-		local cd = cfg.Damping * math.sqrt(2 * k)
+		local out = self.out
+		local driver = input.driver == true
 
-		-- suspension: implicit (backward-Euler) spring + damper along the bike's up axis.
-		-- A plain per-frame spring force lags the 240 Hz physics by a frame, which eats
-		-- the damping and makes the bike bounce; solving it implicitly is stable at any
-		-- frame rate and settles at ride height.
-		local hits = {}
-		local grounded = false
-		local n, C, rateSum, rateN = 0, 0, 0, 0
+		local throttle = clamp(input.throttle or 0, 0, 1)
+		local brake = clamp(input.brake or 0, 0, 1)
+		local steerIn = clamp(input.steer or 0, -1, 1)
+		local back = clamp(input.leanBack or 0, 0, 1)
+		local forward = clamp(input.leanForward or 0, 0, 1)
+		local control = driver and not self.crashed -- the rider is on and in control
+		if not control then
+			throttle, steerIn, back, forward = 0, 0, 0, 0
+			if self.crashed then
+				brake = 0
+			end
+		end
+
+		local speed = self.v:Dot(fwd)
+		local maxLean = math.rad(cfg.MaxLean)
+		local lock = Physics.lockAt(cfg, L, speed)
+		local steerStep = cfg.SteerSpeed * h
+		self.steerAngle = clamp(self.steerAngle + clamp(steerIn * lock - self.steerAngle, -steerStep, steerStep), -lock, lock)
+
+		-- level frame: lean is measured from upright, around the level forward direction
+		local levelFwd = fwd - Y * fwd:Dot(Y)
+		levelFwd = if levelFwd.Magnitude > 0.05 then levelFwd.Unit else (-(up - Y * up:Dot(Y))).Unit
+		local levelRight = levelFwd:Cross(Y)
+		local lean = math.atan2(up:Dot(levelRight), up:Dot(Y)) -- + = leaning right
+		-- the axis the rider leans the bike about: forward, but square to the pitch axis so
+		-- leaning a bike that's pitched up (a turning wheelie) doesn't tip it in pitch too
+		local rollAxis = levelFwd - right * levelFwd:Dot(right)
+		rollAxis = if rollAxis.Magnitude > 0.1 then rollAxis.Unit else levelFwd
+
+		-- 1. contacts --------------------------------------------------------------------
+		local con = {}
 		for i = 1, 2 do
-			local comp, hit = self:probe(i)
-			if hit and comp > 0 then
-				hits[i] = hit
-				grounded = true
-				n += 1
-				C += comp + 3 * math.max(comp - travel, 0) -- stiff bump stop past full travel
-				if self.comp[i] > 0 then
-					rateSum += (comp - self.comp[i]) / dt
-					rateN += 1
+			local c, hit, W, n, P = self:probe(i)
+			if hit and not (self.crashed and up.Y < 0.3) then
+				-- a wheel can't sink into something faster than it's moving (a new ray catching
+				-- an edge would otherwise kick it)
+				local most = self.comp[i] + (v0 + w0:Cross(W - self.com)).Magnitude * h + 0.08
+				if c > most then
+					W -= up * (c - most)
+					P -= up * (c - most)
+					c = most
 				end
-				self.comp[i] = comp
-			else
-				self.comp[i] = 0
+				-- the ground's slope here (an edge or a wall face says nothing about it)
+				local gn = if hit.Normal.Y > 0.6 then hit.Normal elseif n.Y > 0.6 then n else Y
+				con[i] = { c = c, hit = hit, W = W, n = n, P = P, gn = gn, cos = math.max(up:Dot(n), 0.3) }
 			end
 		end
-		if n > 0 then
-			local gUp = g * math.max(upv.Y, 0.2)
-			-- chassis speed along up, measured from how fast the springs extend
-			local vUp = if rateN > 0 then -rateSum / rateN else ch.AssemblyLinearVelocity:Dot(upv)
-			local vNew = (vUp + dt * (k * C - gUp)) / (1 + n * k * dt * dt + n * cd * dt)
-			local dv = math.clamp(vNew - vUp + gUp * dt, -g * dt * 2, g * dt * 8)
-			ch:ApplyImpulse(upv * dv * mass)
+		local frontDown, rearDown = con[1] ~= nil, con[2] ~= nil
+
+		-- 2. suspension: implicit spring + damper per wheel (solved with the tyres in step 5) ------
+		local frontAxle = cf:PointToWorldSpace(self.wheels[1].axle)
+		local rearAxle = cf:PointToWorldSpace(self.wheels[2].axle)
+		local xF = math.max((frontAxle - self.com):Dot(fwd), 0.1)
+		local xR = math.max((self.com - rearAxle):Dot(fwd), 0.1)
+		local share = { xR / (xF + xR), xF / (xF + xR) }
+		for i = 1, 2 do
+			local k = con[i]
+			if k then
+				k.kk = cfg.SpringRate * m * g * share[i] / (travel * 0.5)
+				k.cd = cfg.Damping * 2 * math.sqrt(k.kk * m * share[i])
+				k.cr = cfg.ReboundDamping * 2 * math.sqrt(k.kk * m * share[i])
+				k.me = self:effMass(k.P, k.n) * k.cos * k.cos
+				k.vn0 = self:pointVel(k.P):Dot(k.n)
+				-- extension speed: from how far the spring moved since last frame (exact at rest)
+				local u = if self.comp[i] > 0 then -(k.c - self.comp[i]) / h else k.vn0 / k.cos
+				k.u = clamp(u, -cfg.MaxSuspensionSpeed, cfg.MaxSuspensionSpeed)
+				k.gu = g * k.n.Y / k.cos * h
+				k.lam = 0
+			end
+		end
+		-- one suspension row of the solver below
+		local function suspend(k)
+			local a = k.u + (self:pointVel(k.P):Dot(k.n) - k.vn0) / k.cos - k.gu
+			local cEff = k.c + 4 * math.max(k.c - travel, 0) -- bump stop
+			local soft = h * h * k.kk + h * (if a > 0 then k.cr else k.cd) -- rebound is damped harder
+			local new = math.max(k.lam + (h * k.kk * cEff - soft * a - k.lam) / (1 + soft / k.me), 0)
+			if k.c > travel then -- bottomed out: stop it going any further
+				new = math.max(new, k.lam + k.me * (0.3 * (k.c - travel) / h - a))
+			end
+			new = math.min(new, 30 * m * g * h)
+			local d = new - k.lam
+			k.lam = new
+			if d ~= 0 then
+				self:impulse(k.n * (d / k.cos), k.P)
+			end
+		end
+		for i = 1, 2 do
+			self.comp[i] = if con[i] then con[i].c else 0
 		end
 
-		-- drive, brake and tyre grip in the heading frame
-		local fwd = Vector3.new(-math.sin(self.yaw), 0, -math.cos(self.yaw))
-		local right = Vector3.new(math.cos(self.yaw), 0, -math.sin(self.yaw))
-		local v = ch.AssemblyLinearVelocity
-		local vF = v:Dot(fwd)
-		local vS = v:Dot(right)
-		if grounded then
-			local target, rate
-			if throttle > 0.05 then
-				target = throttle * cfg.MaxSpeed
-				rate = if vF < -0.5 then cfg.BrakeDecel else cfg.Acceleration
-			elseif throttle < -0.05 then
-				if vF > 0.5 then
-					target, rate = 0, cfg.BrakeDecel
-				else
-					target, rate = throttle * cfg.ReverseSpeed, cfg.Acceleration * 0.5
+		-- 3. the rider: wheelie / stoppie / air control -------------------------------------------
+		local Ip = self:inertiaAbout(right)
+		local pitchRate = self.w:Dot(right) -- + = nose rising
+		local riderTorque = 0 -- about the right axis, + = nose up
+		local rearAssist = 0
+		local frontBrakeUse = nil -- the front brake the rider actually uses in a stoppie
+		local wheelieThrottle = nil -- the throttle the rider actually uses in a wheelie
+		local theta, thetaB, toBal = 0, 0.6, 0.6
+		local thetaS = 0
+		if rearDown then
+			local gn = con[2].gn
+			theta = math.asin(clamp(fwd:Dot(gn), -1, 1)) -- nose up from the ground under the rear tyre
+			local r = self.com - con[2].P
+			toBal = math.pi / 2 - math.atan2(r:Dot(Y), r:Dot(levelFwd)) -- still to go to the balance point
+			thetaB = theta + toBal
+		end
+		local wasWheelie = self.wheelieOn
+		if control and rearDown and (back > 0 or self.wheelieOn) then
+			local r = self.com - con[2].P
+			local x = r:Dot(levelFwd) -- centre of mass ahead of the rear tyre
+			local Ic = Ip + m * x * x -- the tyre holds it up, not back: pitch inertia seen by the rider
+			local H = math.max(r:Dot(Y), 0.5) -- and above it
+			if not self.wheelieOn and back > 0 and speed > cfg.WheelieMinSpeed and throttle > 0.2 then
+				self.wheelieOn = true
+				self.aim = math.max(theta, 0)
+				self.aimI = 0
+			end
+			if self.wheelieOn then
+				-- E + throttle raises the angle the rider is going for, letting off lowers it
+				local cap = if cfg.WheelieAssist then thetaB - math.rad(cfg.WheelieSweetSpot) else thetaB + 0.6
+				local rate = if back > 0 and throttle > 0.5 and speed > 2 then cfg.WheelieAimUp else -cfg.WheelieAimDown
+				if back == 0 then
+					rate = -cfg.WheelieAimDown * 1.5
 				end
+				self.aim = clamp(self.aim + rate * h, 0, math.max(cap, 0))
+				-- torque the rider needs about the rear tyre (pitch speed limited near the target)
+				local wn = cfg.WheelieControl
+				self.aimI = clamp(self.aimI + (self.aim - theta) * h, -0.3, 0.3) -- and remove any steady error
+				local wantRate = clamp(wn * 0.5 * (self.aim - theta) + wn * 0.3 * self.aimI, -1.5, 1.5)
+				local thetaRate = self.w:Cross(fwd):Dot(con[2].gn) / math.max(math.cos(theta), 0.2)
+				local need = Ic * (wn * 1.5 * (wantRate - thetaRate)) + m * g * x
+				-- 1. the throttle (the motor pushing the tyre forward lifts the front). Below the
+				--    balance point it also gets the pop that lifts the front in the first place.
+				local A, drag = self:motor(speed)
+				local lift = clamp((0.9 - theta / math.max(thetaB, 0.2)) / 0.4, 0, 1) * m * g * cfg.WheelieLift
+				local perThrottle = m * H * A + lift
+				local base = -m * H * drag
+				local thrMax = math.max(throttle, if back > 0 then 0.5 else 0.3)
+				local thr = clamp((need - base) / math.max(perThrottle, 1e-6), 0, thrMax)
+				wheelieThrottle = thr
+				local rest = need - base - thr * perThrottle
+				-- 2. body weight back / forward
+				local shift = clamp(rest, -m * g * cfg.RiderShift, m * g * cfg.RiderShift)
+				rest -= shift
+				riderTorque = shift + thr * lift
+				-- 3. past what that can do: cover the rear brake (assist), else it's up to you (S)
+				if rest < 0 and cfg.WheelieAssist then
+					rearAssist = clamp(-rest / (m * cfg.RearBrake * H), 0, 1)
+				end
+				if frontDown and self.aim <= 0.01 and back == 0 then
+					self.wheelieOn = false
+				end
+			end
+		elseif not rearDown or not control then
+			self.wheelieOn = false
+		end
+		if self.wheelieOn and frontDown and self.aim <= 0.01 then
+			self.wheelieOn = false
+		end
+
+		-- stoppie: weight forward and brake, pivot on the front tyre
+		if control and frontDown and ((forward > 0 and brake > 0) or self.stoppieOn) and not self.wheelieOn then
+			local gn = con[1].gn
+			thetaS = -math.asin(clamp(fwd:Dot(gn), -1, 1)) -- rear up from the ground under the front tyre
+			local r = self.com - con[1].P
+			local toBalF = math.pi / 2 - math.atan2(r:Dot(Y), -r:Dot(levelFwd))
+			local Ic = Ip + m * r:Dot(levelFwd) ^ 2
+			if not self.stoppieOn and forward > 0 and brake > 0 and speed > cfg.StoppieMinSpeed then
+				self.stoppieOn = true
+				self.aimS = math.max(thetaS, 0)
+			end
+			if self.stoppieOn then
+				local holding = forward > 0 and brake > 0 and speed > 2
+				local cap = math.min(math.rad(cfg.StoppieAngle), thetaS + toBalF - math.rad(6))
+				local rate = if holding then cfg.StoppieAimUp else -cfg.StoppieAimDown
+				self.aimS = clamp(self.aimS + rate * h, 0, math.max(cap, 0))
+				local wn = cfg.WheelieControl
+				local x = -r:Dot(levelFwd) -- centre of mass behind the front tyre
+				local H = math.max(r:Dot(Y), 0.5) -- and above it
+				local wantRate = clamp(wn * 0.5 * (self.aimS - thetaS), -1.5, 1.5)
+				local thetaRate = -self.w:Cross(fwd):Dot(con[1].gn) / math.max(math.cos(thetaS), 0.2)
+				local need = Ic * (wn * 1.5 * (wantRate - thetaRate)) + m * g * x -- rear-up torque needed
+				-- 1. the front brake lifts the rear (helped by a shove from the rider to get it up)
+				local lift = clamp((0.6 - thetaS / math.max(cap, 0.1)) / 0.4, 0, 1) * m * g * cfg.StoppieLift
+				local per = m * H * cfg.FrontBrake + lift
+				local b = clamp(need / per, 0, math.max(brake, 0.3))
+				frontBrakeUse = b
+				-- 2. body weight forward / back for the rest
+				local shift = clamp(need - b * per, -m * g * cfg.RiderShift, m * g * cfg.RiderShift)
+				riderTorque = -(shift + b * lift)
+				if toBalF < -math.rad(cfg.LoopOutAngle) then
+					self:crash("endo")
+				end
+				if rearDown and self.aimS <= 0.01 and not holding then
+					self.stoppieOn = false
+				end
+			end
+		elseif not frontDown or not control then
+			self.stoppieOn = false
+		end
+
+		local airborne = not frontDown and not rearDown
+		if airborne then
+			self.airTime += h
+		else
+			self.airTime = 0
+		end
+		if control and airborne then
+			-- the rider lines the bike up with where it's flying (so it lands on both wheels);
+			-- E / Q lift or drop the nose from there, throttle / brake spin the rear wheel up or stop it
+			local vm = self.v.Magnitude
+			local pitch = math.asin(clamp(fwd.Y, -1, 1))
+			local flight = if vm > 5 then math.asin(clamp(self.v.Y / vm, -1, 1)) else 0
+			local aim = clamp(flight, -0.7, 0.5)
+			-- coming down: match the slope it's landing on (a touch nose-up on the flat)
+			local below = workspace:Raycast(self.com, Vector3.new(0, -40, 0), self.params)
+			if below then
+				local d = levelFwd - below.Normal * levelFwd:Dot(below.Normal)
+				local slope = if d.Magnitude > 1e-3 then math.asin(clamp(d.Unit.Y, -1, 1)) else 0
+				local near = clamp((12 - (self.com.Y - below.Position.Y)) / 8, 0, 1)
+				aim += (slope + 0.06 - aim) * near
+			end
+			aim += cfg.AirLean * (back - forward)
+			local wn = if cfg.AirAssist then cfg.AirControl else 0
+			local alpha = wn * wn * (aim - pitch) - 2 * wn * pitchRate * 0.8
+			alpha = clamp(alpha, -cfg.AirPitch, cfg.AirPitch)
+			if not cfg.AirAssist then
+				alpha = cfg.AirPitch * (back - forward)
+			end
+			alpha += cfg.AirThrottle * (throttle - brake)
+			riderTorque = Ip * alpha
+			self:spin(Y, (-steerIn * cfg.AirYaw - self.w:Dot(Y)) * (1 - math.exp(-4 * h)))
+		elseif control and not self.wheelieOn and not self.stoppieOn then
+			-- weight forward / back while riding
+			riderTorque = m * g * cfg.RiderShift * (back - forward) * 0.5
+			if frontDown ~= rearDown and cfg.AirAssist and math.abs(speed) > 8 then
+				-- one wheel went light (a lip, a bump, landing on one wheel): the rider holds the
+				-- bike's attitude and lets it settle back onto the ground gently
+				local k = con[if rearDown then 2 else 1]
+				local rel = math.asin(clamp(fwd:Dot(k.gn), -1, 1))
+				local r = self.com - k.P
+				local Ic = Ip + m * r:Dot(levelFwd) ^ 2
+				local wantRate = clamp(-3 * rel, -1.5, 1.5)
+				-- (only as much as that tyre is actually holding the bike up: one rolling off an
+				-- edge holds nothing)
+				local support = clamp(self.load[if rearDown then 2 else 1] / (m * g), 0, 1)
+				local gravity = -m * g * r:Cross(Y):Dot(right) -- gravity's pitch torque about that tyre
+				local lim = m * g * (cfg.RiderShift + cfg.WheelieLift) * support
+				riderTorque += clamp(Ic * 8 * (wantRate - pitchRate) - gravity * support, -lim, lim)
+				if rearDown and rel > 0.12 then
+					-- the front's coming up by itself: ease off the throttle (wheelie control)
+					wheelieThrottle = throttle * clamp(1 - (rel - 0.12) / 0.15, 0, 1)
+				end
+			end
+		end
+		if riderTorque ~= 0 then
+			self:angImpulse(right * (riderTorque * h))
+		end
+
+		-- a crashed bike with nobody holding it up falls over
+		if self.crashed and not airborne and math.abs(lean) < 0.6 then
+			local Ir = self:inertiaAbout(rollAxis)
+			self:angImpulse(rollAxis * (Ir * 1.5 * self.fallSide * h))
+		end
+
+		-- 4. lean target: the lean that balances the turn ------------------------------------------
+		local rollTarget = nil
+		if not self.crashed and not airborne then
+			local target = 0
+			if math.abs(speed) > 3 then
+				local steer = self.steerAngle * (if frontDown then 1 else cfg.WheelieSteer)
+				local wKin = speed * math.tan(steer) / (L * math.max(math.cos(lean), 0.3))
+				local wMeas = -self.w:Dot(Y)
+				target = math.atan(speed * (0.6 * wKin + 0.4 * wMeas) / g)
+			end
+			target = clamp(target, -maxLean * 1.15, maxLean * 1.15)
+			rollTarget = clamp((target - lean) * cfg.RollStiffness, -cfg.RollRate, cfg.RollRate)
+			-- only the rear tyre down (wheelie): lean it round
+			if rearDown and not frontDown and control then
+				local n = con[2].gn
+				local want = -speed * math.tan(self.steerAngle * cfg.WheelieSteer) / L
+				self:spin(n, (want - self.w:Dot(n)) * (1 - math.exp(-8 * h)))
+			end
+		elseif not self.crashed and airborne and control then
+			-- level the bike in the air
+			self:spin(rollAxis, (-lean * 2 - self.w:Dot(rollAxis)) * (1 - math.exp(-3 * h)))
+		end
+
+		-- 5. tyres: drive / brake along the wheel, grip across it, inside the friction circle.
+		-- Solved together with the rider's lean so the side force doesn't tip the bike over.
+		local drive = 0
+		if wheelieThrottle then
+			throttle = wheelieThrottle
+		end
+		if throttle > 0 then
+			local A, drag = self:motor(speed)
+			drive = throttle * A - drag
+		elseif brake > 0 and speed < 1.5 and driver and not self.stoppieOn then
+			drive = -brake * cfg.Acceleration * 0.35 * clamp(1 + math.min(speed, 0) / cfg.ReverseSpeed, 0, 1)
+			brake = 0
+		end
+		if rearAssist > 0 or frontBrakeUse then
+			drive = math.min(drive, 0) -- off the throttle while braking to hold the angle
+		end
+		local slip = { 0, 0 }
+		for i = 1, 2 do
+			local k = con[i]
+			if k then
+				-- rolling direction: across the wheel's axle, along the ground (a leaned, steered
+				-- wheel turns tighter than the bar angle: tan(steer) / cos(lean)). Along the ground's
+				-- slope even on an edge, so drive and brakes don't flip the bike over a lip.
+				local n = k.gn
+				local axle = if i == 1 then CFrame.fromAxisAngle(up, -self.steerAngle):VectorToWorldSpace(right) else right
+				local t = n:Cross(axle)
+				if t.Magnitude > 1e-3 then
+					t = t.Unit
+					k.t, k.l = t, t:Cross(n)
+					k.ml = self:effMass(k.P, k.l)
+					k.mu = gripOf(k.hit, cfg) * (if self.sliding[i] then cfg.SlideGrip else 1)
+					local Jt = if i == 2 then drive * m * h else 0
+					local decel = cfg.RollingDrag * share[i]
+					if i == 1 then
+						decel += (frontBrakeUse or brake) * cfg.FrontBrake
+					else
+						decel += math.max(brake, rearAssist) * cfg.RearBrake + (if throttle == 0 then cfg.CoastDecel else 0)
+					end
+					-- brakes stop the wheel, never push the bike backwards: limit by the hub's speed
+					local vHub = (v0 + w0:Cross(k.W - self.com)):Dot(t)
+					Jt -= (if vHub >= 0 then 1 else -1) * math.min(decel * m * h, self:effMass(k.W, t) * math.abs(vHub))
+					k.Jt0, k.Jt, k.Jl = Jt, 0, 0
+				end
+			end
+		end
+		local Ir = 1 / rollAxis:Dot(self:invI(rollAxis)) -- inertia felt by a torque about the lean axis
+		local rollMax = cfg.RollTorque * m * g * h
+		local rollAcc = 0
+		for _ = 1, 8 do
+			for i = 1, 2 do
+				if con[i] then
+					suspend(con[i])
+				end
+			end
+			for _, i in ipairs({ 2, 1 }) do
+				local k = con[i]
+				if k and k.t then
+					k.limit = k.mu * k.lam / k.cos
+					local wantL = k.Jl - k.ml * self:pointVel(k.P):Dot(k.l) * cfg.LateralStiffness
+					local wantT = k.Jt0
+					local mag = math.sqrt(wantT * wantT + wantL * wantL)
+					local sc = if mag > k.limit and mag > 1e-9 then k.limit / mag else 1
+					wantT *= sc
+					wantL *= sc
+					self:impulse(k.t * (wantT - k.Jt) + k.l * (wantL - k.Jl), k.P)
+					k.Jt, k.Jl = wantT, wantL
+					slip[i] = 1 - sc
+				end
+			end
+			if rollTarget then
+				local new = clamp(rollAcc + Ir * (rollTarget - self.w:Dot(rollAxis)), -rollMax, rollMax)
+				self:angImpulse(rollAxis * (new - rollAcc))
+				rollAcc = new
+			end
+		end
+		for i = 1, 2 do
+			self.sliding[i] = slip[i] > 0.01 -- once it lets go, it slides on with less grip
+			self.load[i] = if con[i] then con[i].lam / con[i].cos / h else 0 -- tyre load (force)
+		end
+
+		-- 6. crashes -----------------------------------------------------------------------------
+		if control then
+			if not airborne and math.abs(lean) > math.rad(cfg.CrashLean) then
+				self:crash("lowside")
+			end
+			if up.Y < 0 or fwd.Y > math.sin(math.rad(78)) then
+				self:crash(if fwd.Y > 0 then "loop" else "flip")
+			end
+			if frontDown and slip[1] > 0.3 and math.abs(lean) > 0.3 then
+				self.washTime += h
 			else
-				target = 0
-				rate = if hasDriver then cfg.CoastDecel else cfg.BrakeDecel
+				self.washTime = 0
 			end
-			local dv = math.clamp(target - vF, -rate * dt, rate * dt)
-			local side = -vS * (1 - math.exp(-cfg.SideGrip * dt))
-			ch:ApplyImpulse((fwd * dv + right * side) * mass)
-
-			-- steering turns the heading; weak at walking pace, gentler at top speed
-			local speed = math.abs(vF)
-			local turn = math.clamp(speed / cfg.FullTurnSpeed, 0, 1) * (1 - 0.45 * math.clamp(speed / cfg.MaxSpeed, 0, 1))
-			local dir = if vF >= 0 then 1 else -1
-			self.yaw -= steer * cfg.SteerRate * turn * dir * dt
-		end
-
-		-- lean into corners (positive roll = lean left)
-		local leanAmt = math.clamp(math.abs(vF) / cfg.LeanFullSpeed, 0, 1)
-		local targetRoll = if grounded then -steer * math.rad(cfg.MaxLean) * leanAmt else self.roll
-		self.roll += (targetRoll - self.roll) * (1 - math.exp(-cfg.LeanResponse * dt))
-
-		-- pitch follows the ground under both wheels, plus the wheelie
-		local targetPitch = self.pitch
-		if hits[1] and hits[2] then
-			local d = hits[1].Position - hits[2].Position
-			if d.Magnitude > 0.1 then
-				targetPitch = math.asin(math.clamp(d.Y / d.Magnitude, -1, 1))
+			if self.washTime > 0.45 then
+				self:crash("lowside")
 			end
-		elseif not grounded then
-			targetPitch = self.pitch * (1 - dt * 0.4)
+			if self.wheelieOn and toBal < -math.rad(cfg.LoopOutAngle) then
+				self:crash("loop")
+			end
+			if frontDown and fwd.Y < -math.sin(math.rad(60)) then
+				self:crash("endo") -- landed on the front, nose first
+			end
 		end
-		self.pitch += (targetPitch - self.pitch) * (1 - math.exp(-10 * dt))
-		-- weight transfer: nose dives under braking, squats under acceleration
-		if self.lastVF then
-			local a = (vF - self.lastVF) / dt
-			self.accel += (a - self.accel) * (1 - math.exp(-8 * dt))
+		-- hit something hard (a wall, a tall kerb)? Lost a lot of speed all at once.
+		local hs = Vector3.new(self.v.X, 0, self.v.Z).Magnitude
+		if self.lastHs then
+			self.impact = self.impact * math.exp(-10 * h) + math.max(self.lastHs - hs, 0)
+			if control and self.impact > cfg.CrashImpact then
+				self:crash("hit")
+			end
 		end
-		self.lastVF = vF
-		local transfer = if grounded then math.clamp(self.accel * cfg.WeightTransfer, -0.07, 0.05) else 0
-		local wantWheelie = wheelieHeld and hits[2] ~= nil and vF > cfg.WheelieMinSpeed and throttle > 0.3
-		local wTarget = if wantWheelie then math.rad(cfg.WheelieAngle) else 0
-		self.wheelie += (wTarget - self.wheelie) * (1 - math.exp(-(if wantWheelie then 2.5 else 4) * dt))
+		self.lastHs = hs
+		if self.crashed then
+			self.wheelieOn, self.stoppieOn = false, false
+		end
 
-		self.align.CFrame = CFrame.fromEulerAnglesYXZ(self.pitch + self.wheelie + transfer, self.yaw, self.roll)
-		return vF
+		out.speed = speed
+		out.steerAngle = self.steerAngle
+		out.lean = lean
+		out.comp[1], out.comp[2] = self.comp[1], self.comp[2]
+		out.contact[1], out.contact[2] = frontDown, rearDown
+		out.slip[1], out.slip[2] = slip[1], slip[2]
+		out.wheelie = self.wheelieOn and not frontDown
+		out.wheelieStarted = self.wheelieOn and not wasWheelie
+		out.wheelieAngle = theta
+		out.balanceAngle = thetaB
+		out.aim = self.aim
+		out.stoppie = self.stoppieOn and not rearDown
+		out.stoppieAngle = thetaS
+		out.airborne = airborne
+		out.airTime = self.airTime
+		out.crashed = self.crashed
+		out.crashReason = self.crashReason
+		out.rearBrakeAssist = rearAssist
+		out.braking = brake > 0.1 and speed > 1
+		out.standing = forward > 0 and brake == 0
+		return out
 	end
 
 	return Physics
@@ -222,8 +846,8 @@ local AnimPlayer = (function()
 	-- RideKit.AnimPlayer: plays the R6 riding animations made in Blender
 	-- (blender/anim/ride_anims.blend -> roblox/anim/ride_anims.json -> AnimData).
 	-- No pose is computed here: it samples the Blender keyframes, blends the clips
-	-- (ride + tuck / brake / lean left / lean right / wheelie) by riding state, and
-	-- writes the result to the rider's Motor6D.Transform on every client.
+	-- by riding state (weights from the bike's physics), and writes the result to
+	-- the rider's Motor6D.Transform on every client.
 
 	local AnimPlayer = {}
 
@@ -247,7 +871,10 @@ local AnimPlayer = (function()
 				local pose = {}
 				for _, part in ipairs(PARTS) do
 					local q = k.pose[part]
-					pose[part] = CFrame.new(0, 0, 0, q[1], q[2], q[3], q[4])
+					local p = k.pos and k.pos[part] -- the torso can move too (standing up)
+					pose[part] = if p
+						then CFrame.new(p[1], p[2], p[3], q[1], q[2], q[3], q[4])
+						else CFrame.new(0, 0, 0, q[1], q[2], q[3], q[4])
 				end
 				table.insert(frames, { t = k.t, pose = pose })
 			end
@@ -290,17 +917,31 @@ local AnimPlayer = (function()
 		return out
 	end
 
+	-- clips layered over Ride, in this order (later ones win), and the weight that drives each
+	AnimPlayer.LAYERS = {
+		{ "Tuck", "tuck" }, -- head down on the throttle
+		{ "Brake", "brake" }, -- weight back on the brakes
+		{ "Stand", "stand" }, -- up on the pegs: jumps, bumps, Q
+		{ "HangRight", "hangR" }, -- body into the corner as the bike leans
+		{ "HangLeft", "hangL" },
+		{ "LeanRight", "leanR" }, -- bars turned (follows the steering)
+		{ "LeanLeft", "leanL" },
+		{ "Wheelie", "wheelie" }, -- sat back, arms straight
+		{ "Stoppie", "stoppie" }, -- weight over the front
+	}
+
 	--[[ Full riding pose.
 	  clips  : from prepare
 	  t      : time in seconds (for the looping ride clip)
-	  w      : smoothed weights { tuck, brake, leanR, leanL, wheelie } (0..1) ]]
+	  w      : smoothed weights by name (see LAYERS), 0..1; clips missing from AnimData are skipped ]]
 	function AnimPlayer.pose(clips, t: number, w)
 		local pose = AnimPlayer.sample(clips.Ride, t)
-		pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.Tuck, t), w.tuck)
-		pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.Brake, t), w.brake)
-		pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.LeanRight, t), w.leanR)
-		pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.LeanLeft, t), w.leanL)
-		pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.Wheelie, t), w.wheelie)
+		for _, layer in ipairs(AnimPlayer.LAYERS) do
+			local clip, weight = clips[layer[1]], w[layer[2]]
+			if clip and weight and weight > 1e-3 then
+				pose = AnimPlayer.blend(pose, AnimPlayer.sample(clip, t), weight)
+			end
+		end
 		return pose
 	end
 
@@ -373,52 +1014,70 @@ end)()
 local AnimData = (function()
 	-- R6 riding clips keyframed in Blender (blender/anim/ride_anims.blend).
 	-- Generated by roblox/build_ridekit.py from roblox/anim/ride_anims.json; do not edit.
-	-- Each key: time (s) and every R6 joint's Motor6D.Transform rotation as a quaternion {x, y, z, w}.
+	-- Each key: time (s) and every R6 joint's Motor6D.Transform rotation as a quaternion {x, y, z, w}
+	-- (pos: the torso's Transform position where it moves off the seat, e.g. standing).
 	return {
 		bike = "surron2",
 		clips = {
 			Ride = { length = 2.0, loop = true, steer = 0.0, keys = {
-				{ t = 0.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12428, -0.00000, 0.00000, 0.99225 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 0.1, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12384, 0.00000, -0.00357, 0.99230 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 0.2, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12277, 0.00000, -0.01209, 0.99236 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 0.3, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12145, 0.00000, -0.02224, 0.99235 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 0.4, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12033, -0.00000, -0.03073, 0.99226 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 0.5, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11985, 0.00000, -0.03428, 0.99220 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 0.6, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12075, 0.00000, -0.03237, 0.99216 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 0.7, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12290, 0.00000, -0.02718, 0.99205 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 0.8, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12546, 0.00000, -0.01952, 0.99191 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 0.9, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12761, 0.00000, -0.01018, 0.99177 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12851, 0.00000, 0.00000, 0.99171 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.1, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12761, 0.00000, 0.01018, 0.99177 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.2, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12546, -0.00000, 0.01952, 0.99191 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.3, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12290, 0.00000, 0.02718, 0.99205 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.4, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12075, 0.00000, 0.03237, 0.99216 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.5, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11985, 0.00000, 0.03428, 0.99220 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.6, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11992, 0.00000, 0.03073, 0.99231 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.7, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12024, 0.00000, 0.02224, 0.99250 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.8, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12094, -0.00000, 0.01209, 0.99259 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 1.9, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12222, -0.00000, 0.00357, 0.99250 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
-				{ t = 2.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12428, -0.00000, 0.00000, 0.99225 }, ["Right Arm"] = { 0.07363, -0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12428, -0.00000, 0.00000, 0.99225 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.1, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12384, 0.00000, -0.00357, 0.99230 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.2, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12277, 0.00000, -0.01209, 0.99236 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.3, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12145, 0.00000, -0.02224, 0.99235 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.4, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12033, 0.00000, -0.03073, 0.99226 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.5, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11985, 0.00000, -0.03428, 0.99220 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.6, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12075, 0.00000, -0.03237, 0.99216 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.7, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12290, 0.00000, -0.02718, 0.99205 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.8, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12546, 0.00000, -0.01952, 0.99191 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 0.9, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12761, 0.00000, -0.01018, 0.99177 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12851, 0.00000, 0.00000, 0.99171 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.1, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12761, 0.00000, 0.01018, 0.99177 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.2, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12546, -0.00000, 0.01952, 0.99191 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.3, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12290, 0.00000, 0.02718, 0.99205 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.4, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12075, -0.00000, 0.03237, 0.99216 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.5, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11985, 0.00000, 0.03428, 0.99220 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.6, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.11992, 0.00000, 0.03073, 0.99231 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.7, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12024, 0.00000, 0.02224, 0.99250 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.8, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12094, -0.00000, 0.01209, 0.99259 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 1.9, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12222, -0.00000, 0.00357, 0.99250 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
+				{ t = 2.0, pose = { ["Torso"] = { 0.13954, 0.00000, 0.00000, 0.99022 }, ["Head"] = { -0.12428, -0.00000, 0.00000, 0.99225 }, ["Right Arm"] = { 0.07363, 0.00000, 0.57084, 0.81776 }, ["Left Arm"] = { 0.09559, 0.00000, -0.57172, 0.81486 }, ["Right Leg"] = { -0.12399, -0.00000, 0.07083, 0.98975 }, ["Left Leg"] = { -0.10638, -0.00000, -0.07874, 0.99120 } } },
 			} },
 			Tuck = { length = 1.0, loop = true, steer = 0.0, keys = {
-				{ t = 0.0, pose = { ["Torso"] = { 0.16918, -0.00000, -0.00000, 0.98559 }, ["Head"] = { -0.18004, -0.00000, 0.00000, 0.98366 }, ["Right Arm"] = { 0.07644, -0.00000, 0.59320, 0.80141 }, ["Left Arm"] = { 0.09924, 0.00000, -0.59411, 0.79824 }, ["Right Leg"] = { -0.12377, -0.00000, 0.11628, 0.98547 }, ["Left Leg"] = { -0.10617, -0.00000, -0.12441, 0.98653 } } },
-				{ t = 1.0, pose = { ["Torso"] = { 0.16918, -0.00000, -0.00000, 0.98559 }, ["Head"] = { -0.18004, -0.00000, 0.00000, 0.98366 }, ["Right Arm"] = { 0.07644, -0.00000, 0.59320, 0.80141 }, ["Left Arm"] = { 0.09924, 0.00000, -0.59411, 0.79824 }, ["Right Leg"] = { -0.12377, -0.00000, 0.11628, 0.98547 }, ["Left Leg"] = { -0.10617, -0.00000, -0.12441, 0.98653 } } },
+				{ t = 0.0, pose = { ["Torso"] = { 0.16918, -0.00000, -0.00000, 0.98559 }, ["Head"] = { -0.18004, -0.00000, 0.00000, 0.98366 }, ["Right Arm"] = { 0.07644, 0.00000, 0.59320, 0.80141 }, ["Left Arm"] = { 0.09924, 0.00000, -0.59411, 0.79824 }, ["Right Leg"] = { -0.12377, -0.00000, 0.11628, 0.98547 }, ["Left Leg"] = { -0.10617, -0.00000, -0.12441, 0.98653 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.16918, -0.00000, -0.00000, 0.98559 }, ["Head"] = { -0.18004, -0.00000, 0.00000, 0.98366 }, ["Right Arm"] = { 0.07644, 0.00000, 0.59320, 0.80141 }, ["Left Arm"] = { 0.09924, 0.00000, -0.59411, 0.79824 }, ["Right Leg"] = { -0.12377, -0.00000, 0.11628, 0.98547 }, ["Left Leg"] = { -0.10617, -0.00000, -0.12441, 0.98653 } } },
 			} },
 			Brake = { length = 1.0, loop = true, steer = 0.0, keys = {
 				{ t = 0.0, pose = { ["Torso"] = { 0.10481, 0.00000, 0.00000, 0.99449 }, ["Head"] = { -0.07199, 0.00000, 0.00000, 0.99740 }, ["Right Arm"] = { 0.07066, 0.00000, 0.54471, 0.83564 }, ["Left Arm"] = { 0.09174, 0.00000, -0.54555, 0.83304 }, ["Right Leg"] = { -0.12411, 0.00000, 0.01727, 0.99212 }, ["Left Leg"] = { -0.10651, 0.00000, -0.02485, 0.99400 } } },
 				{ t = 1.0, pose = { ["Torso"] = { 0.10481, 0.00000, 0.00000, 0.99449 }, ["Head"] = { -0.07199, 0.00000, 0.00000, 0.99740 }, ["Right Arm"] = { 0.07066, 0.00000, 0.54471, 0.83564 }, ["Left Arm"] = { 0.09174, 0.00000, -0.54555, 0.83304 }, ["Right Leg"] = { -0.12411, 0.00000, 0.01727, 0.99212 }, ["Left Leg"] = { -0.10651, 0.00000, -0.02485, 0.99400 } } },
 			} },
 			LeanRight = { length = 1.0, loop = true, steer = 0.24, keys = {
-				{ t = 0.0, pose = { ["Torso"] = { 0.17564, -0.13342, -0.16469, 0.96137 }, ["Head"] = { -0.17435, 0.00000, -0.06362, 0.98263 }, ["Right Arm"] = { 0.25756, 0.00000, 0.62658, 0.73557 }, ["Left Arm"] = { -0.06365, 0.00000, -0.49522, 0.86643 }, ["Right Leg"] = { -0.31351, 0.00000, 0.24114, 0.91846 }, ["Left Leg"] = { 0.10797, -0.00000, -0.09514, 0.98959 } } },
-				{ t = 1.0, pose = { ["Torso"] = { 0.17564, -0.13342, -0.16469, 0.96137 }, ["Head"] = { -0.17435, 0.00000, -0.06362, 0.98263 }, ["Right Arm"] = { 0.25756, 0.00000, 0.62658, 0.73557 }, ["Left Arm"] = { -0.06365, 0.00000, -0.49522, 0.86643 }, ["Right Leg"] = { -0.31351, 0.00000, 0.24114, 0.91846 }, ["Left Leg"] = { 0.10797, -0.00000, -0.09514, 0.98959 } } },
+				{ t = 0.0, pose = { ["Torso"] = { 0.17564, -0.13342, -0.16469, 0.96137 }, ["Head"] = { -0.17435, 0.00000, -0.06362, 0.98263 }, ["Right Arm"] = { 0.25756, 0.00000, 0.62658, 0.73557 }, ["Left Arm"] = { -0.06365, 0.00000, -0.49522, 0.86643 }, ["Right Leg"] = { -0.31351, -0.00000, 0.24114, 0.91846 }, ["Left Leg"] = { 0.10797, -0.00000, -0.09514, 0.98959 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.17564, -0.13342, -0.16469, 0.96137 }, ["Head"] = { -0.17435, 0.00000, -0.06362, 0.98263 }, ["Right Arm"] = { 0.25756, 0.00000, 0.62658, 0.73557 }, ["Left Arm"] = { -0.06365, 0.00000, -0.49522, 0.86643 }, ["Right Leg"] = { -0.31351, -0.00000, 0.24114, 0.91846 }, ["Left Leg"] = { 0.10797, -0.00000, -0.09514, 0.98959 } } },
 			} },
 			LeanLeft = { length = 1.0, loop = true, steer = -0.24, keys = {
-				{ t = 0.0, pose = { ["Torso"] = { 0.17430, 0.13517, 0.17430, 0.95967 }, ["Head"] = { -0.17270, -0.00000, 0.05327, 0.98353 }, ["Right Arm"] = { -0.08833, -0.00000, 0.46757, 0.87953 }, ["Left Arm"] = { 0.28308, 0.00000, -0.61252, 0.73803 }, ["Right Leg"] = { 0.09810, -0.00000, 0.07991, 0.99196 }, ["Left Leg"] = { -0.29659, -0.00000, -0.25045, 0.92158 } } },
-				{ t = 1.0, pose = { ["Torso"] = { 0.17430, 0.13517, 0.17430, 0.95967 }, ["Head"] = { -0.17270, -0.00000, 0.05327, 0.98353 }, ["Right Arm"] = { -0.08833, -0.00000, 0.46757, 0.87953 }, ["Left Arm"] = { 0.28308, 0.00000, -0.61252, 0.73803 }, ["Right Leg"] = { 0.09810, -0.00000, 0.07991, 0.99196 }, ["Left Leg"] = { -0.29659, -0.00000, -0.25045, 0.92158 } } },
+				{ t = 0.0, pose = { ["Torso"] = { 0.17430, 0.13517, 0.17430, 0.95967 }, ["Head"] = { -0.17270, -0.00000, 0.05327, 0.98353 }, ["Right Arm"] = { -0.08833, 0.00000, 0.46757, 0.87953 }, ["Left Arm"] = { 0.28308, 0.00000, -0.61252, 0.73803 }, ["Right Leg"] = { 0.09810, 0.00000, 0.07991, 0.99196 }, ["Left Leg"] = { -0.29659, -0.00000, -0.25045, 0.92158 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.17430, 0.13517, 0.17430, 0.95967 }, ["Head"] = { -0.17270, -0.00000, 0.05327, 0.98353 }, ["Right Arm"] = { -0.08833, 0.00000, 0.46757, 0.87953 }, ["Left Arm"] = { 0.28308, 0.00000, -0.61252, 0.73803 }, ["Right Leg"] = { 0.09810, 0.00000, 0.07991, 0.99196 }, ["Left Leg"] = { -0.29659, -0.00000, -0.25045, 0.92158 } } },
 			} },
 			Wheelie = { length = 1.0, loop = true, steer = 0.0, keys = {
-				{ t = 0.0, pose = { ["Torso"] = { 0.06495, -0.00000, -0.00000, 0.99789 }, ["Head"] = { 0.15107, -0.00000, 0.00000, 0.98852 }, ["Right Arm"] = { 0.06763, 0.00000, 0.51481, 0.85463 }, ["Left Arm"] = { 0.08781, -0.00000, -0.51561, 0.85231 }, ["Right Leg"] = { -0.12407, -0.00000, -0.04410, 0.99129 }, ["Left Leg"] = { -0.10649, -0.00000, 0.03698, 0.99363 } } },
-				{ t = 1.0, pose = { ["Torso"] = { 0.06495, -0.00000, -0.00000, 0.99789 }, ["Head"] = { 0.15107, -0.00000, 0.00000, 0.98852 }, ["Right Arm"] = { 0.06763, 0.00000, 0.51481, 0.85463 }, ["Left Arm"] = { 0.08781, -0.00000, -0.51561, 0.85231 }, ["Right Leg"] = { -0.12407, -0.00000, -0.04410, 0.99129 }, ["Left Leg"] = { -0.10649, -0.00000, 0.03698, 0.99363 } } },
+				{ t = 0.0, pose = { ["Torso"] = { 0.06495, -0.00000, -0.00000, 0.99789 }, ["Head"] = { 0.25625, 0.00000, 0.00000, 0.96661 }, ["Right Arm"] = { 0.06763, 0.00000, 0.51481, 0.85463 }, ["Left Arm"] = { 0.08781, -0.00000, -0.51561, 0.85231 }, ["Right Leg"] = { -0.12407, -0.00000, -0.04410, 0.99129 }, ["Left Leg"] = { -0.10649, -0.00000, 0.03698, 0.99363 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.06495, -0.00000, -0.00000, 0.99789 }, ["Head"] = { 0.25625, 0.00000, 0.00000, 0.96661 }, ["Right Arm"] = { 0.06763, 0.00000, 0.51481, 0.85463 }, ["Left Arm"] = { 0.08781, -0.00000, -0.51561, 0.85231 }, ["Right Leg"] = { -0.12407, -0.00000, -0.04410, 0.99129 }, ["Left Leg"] = { -0.10649, -0.00000, 0.03698, 0.99363 } } },
+			} },
+			Stand = { length = 1.0, loop = true, steer = 0.0, keys = {
+				{ t = 0.0, pose = { ["Torso"] = { 0.36162, 0.00000, 0.00000, 0.93233 }, ["Head"] = { -0.36610, 0.00000, 0.00000, 0.93058 }, ["Right Arm"] = { 0.09212, -0.00000, 0.76265, 0.64022 }, ["Left Arm"] = { 0.11947, 0.00000, -0.76297, 0.63530 }, ["Right Leg"] = { -0.11917, -0.00000, 0.44535, 0.88739 }, ["Left Leg"] = { -0.10193, -0.00000, -0.45324, 0.88554 } }, pos = { ["Torso"] = { 0.00000, 0.25000, 0.05000 } } },
+				{ t = 0.5, pose = { ["Torso"] = { 0.36162, 0.00000, 0.00000, 0.93233 }, ["Head"] = { -0.36650, -0.00000, 0.00000, 0.93042 }, ["Right Arm"] = { 0.09274, -0.00000, 0.76445, 0.63797 }, ["Left Arm"] = { 0.12027, -0.00000, -0.76477, 0.63299 }, ["Right Leg"] = { -0.11975, 0.00000, 0.44570, 0.88714 }, ["Left Leg"] = { -0.10243, 0.00000, -0.45363, 0.88528 } }, pos = { ["Torso"] = { -0.00000, 0.25000, 0.04000 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.36162, 0.00000, 0.00000, 0.93233 }, ["Head"] = { -0.36610, 0.00000, 0.00000, 0.93058 }, ["Right Arm"] = { 0.09212, -0.00000, 0.76265, 0.64022 }, ["Left Arm"] = { 0.11947, 0.00000, -0.76297, 0.63530 }, ["Right Leg"] = { -0.11917, -0.00000, 0.44535, 0.88739 }, ["Left Leg"] = { -0.10193, -0.00000, -0.45324, 0.88554 } }, pos = { ["Torso"] = { 0.00000, 0.25000, 0.05000 } } },
+			} },
+			Stoppie = { length = 1.0, loop = true, steer = 0.0, keys = {
+				{ t = 0.0, pose = { ["Torso"] = { 0.09983, -0.00000, 0.00000, 0.99500 }, ["Head"] = { -0.21644, 0.00000, 0.00000, 0.97630 }, ["Right Arm"] = { 0.06750, 0.00000, 0.43123, 0.89971 }, ["Left Arm"] = { 0.08767, 0.00000, -0.43204, 0.89758 }, ["Right Leg"] = { -0.10599, -0.00000, -0.05008, 0.99311 }, ["Left Leg"] = { -0.09087, -0.00000, 0.04413, 0.99488 } }, pos = { ["Torso"] = { 0.00000, -0.30000, 0.25000 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.09983, -0.00000, 0.00000, 0.99500 }, ["Head"] = { -0.21644, 0.00000, 0.00000, 0.97630 }, ["Right Arm"] = { 0.06750, 0.00000, 0.43123, 0.89971 }, ["Left Arm"] = { 0.08767, 0.00000, -0.43204, 0.89758 }, ["Right Leg"] = { -0.10599, -0.00000, -0.05008, 0.99311 }, ["Left Leg"] = { -0.09087, -0.00000, 0.04413, 0.99488 } }, pos = { ["Torso"] = { 0.00000, -0.30000, 0.25000 } } },
+			} },
+			HangRight = { length = 1.0, loop = true, steer = 0.0, keys = {
+				{ t = 0.0, pose = { ["Torso"] = { 0.21248, -0.17653, -0.09885, 0.95599 }, ["Head"] = { -0.20213, -0.00000, -0.16000, 0.96620 }, ["Right Arm"] = { 0.24025, 0.00000, 0.72928, 0.64065 }, ["Left Arm"] = { 0.04449, 0.00000, -0.47475, 0.87899 }, ["Right Leg"] = { -0.38187, 0.00000, 0.24751, 0.89046 }, ["Left Leg"] = { 0.15802, 0.00000, -0.16798, 0.97304 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.21248, -0.17653, -0.09885, 0.95599 }, ["Head"] = { -0.20213, -0.00000, -0.16000, 0.96620 }, ["Right Arm"] = { 0.24025, 0.00000, 0.72928, 0.64065 }, ["Left Arm"] = { 0.04449, 0.00000, -0.47475, 0.87899 }, ["Right Leg"] = { -0.38187, 0.00000, 0.24751, 0.89046 }, ["Left Leg"] = { 0.15802, 0.00000, -0.16798, 0.97304 } } },
+			} },
+			HangLeft = { length = 1.0, loop = true, steer = 0.0, keys = {
+				{ t = 0.0, pose = { ["Torso"] = { 0.22500, 0.18025, 0.10571, 0.95169 }, ["Head"] = { -0.21503, -0.00000, 0.15070, 0.96491 }, ["Right Arm"] = { 0.01910, 0.00000, 0.46798, 0.88353 }, ["Left Arm"] = { 0.27843, 0.00000, -0.72630, 0.62846 }, ["Right Leg"] = { 0.14666, 0.00000, 0.17602, 0.97340 }, ["Left Leg"] = { -0.36601, -0.00000, -0.27810, 0.88809 } } },
+				{ t = 1.0, pose = { ["Torso"] = { 0.22500, 0.18025, 0.10571, 0.95169 }, ["Head"] = { -0.21503, -0.00000, 0.15070, 0.96491 }, ["Right Arm"] = { 0.01910, 0.00000, 0.46798, 0.88353 }, ["Left Arm"] = { 0.27843, 0.00000, -0.72630, 0.62846 }, ["Right Leg"] = { 0.14666, 0.00000, 0.17602, 0.97340 }, ["Left Leg"] = { -0.36601, -0.00000, -0.27810, 0.88809 } } },
 			} },
 		},
 	}
@@ -428,6 +1087,192 @@ end)()
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ContextActionService = game:GetService("ContextActionService")
+
+local STUD_M = 0.28 -- metres per stud (Roblox avatar scale); studs/s x 1.008 = km/h
+
+local CRASH_TEXT = {
+	loop = "Looped it!",
+	lowside = "Lost the front!",
+	hit = "Hit something!",
+	endo = "Over the bars!",
+	flip = "Flipped it!",
+}
+
+-- rider HUD: speed, wheelie / stoppie timer with the balance bar, messages ---------------------
+local function makeHud(player: Player)
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "RideKit_HUD"
+	gui.ResetOnSpawn = false
+	gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+	local function label(parent, text, size, font, color, anchor, pos, dims)
+		local l = Instance.new("TextLabel")
+		l.BackgroundTransparency = 1
+		l.Text = text
+		l.TextSize = size
+		l.Font = font
+		l.TextColor3 = color or Color3.new(1, 1, 1)
+		l.AnchorPoint = anchor or Vector2.zero
+		l.Position = pos or UDim2.new()
+		l.Size = dims or UDim2.new(1, 0, 0, size)
+		l.Parent = parent
+		return l
+	end
+	local function panel(name, anchor, pos, size)
+		local f = Instance.new("Frame")
+		f.Name = name
+		f.AnchorPoint = anchor
+		f.Position = pos
+		f.Size = size
+		f.BackgroundColor3 = Color3.fromRGB(12, 14, 18)
+		f.BackgroundTransparency = 0.3
+		f.BorderSizePixel = 0
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, 12)
+		c.Parent = f
+		f.Parent = gui
+		return f
+	end
+	local function bar(parent, color, x, w, y, h)
+		local f = Instance.new("Frame")
+		f.BorderSizePixel = 0
+		f.BackgroundColor3 = color
+		f.Position = UDim2.new(x, 0, 0, y)
+		f.Size = UDim2.new(w, 0, 0, h)
+		f.Parent = parent
+		local c = Instance.new("UICorner")
+		c.CornerRadius = UDim.new(0, math.floor(h / 2))
+		c.Parent = f
+		return f
+	end
+
+	-- speed, bottom right
+	local sp = panel("Speed", Vector2.new(1, 1), UDim2.new(1, -20, 1, -20), UDim2.fromOffset(160, 84))
+	local speed = label(sp, "0", 46, Enum.Font.GothamBlack, nil, Vector2.new(1, 0), UDim2.new(1, -14, 0, 6), UDim2.new(1, -28, 0, 46))
+	speed.TextXAlignment = Enum.TextXAlignment.Right
+	local unit = label(sp, "KM/H", 13, Enum.Font.GothamBold, Color3.fromRGB(160, 168, 180), Vector2.new(1, 0), UDim2.new(1, -14, 0, 52), UDim2.new(1, -28, 0, 13))
+	unit.TextXAlignment = Enum.TextXAlignment.Right
+	local powerTrack = bar(sp, Color3.fromRGB(45, 50, 58), 0.08, 0.84, 72, 5)
+	local power = bar(powerTrack, Color3.fromRGB(80, 220, 120), 0, 0, 0, 5)
+
+	-- wheelie / stoppie, top centre
+	local tr = panel("Trick", Vector2.new(0.5, 0), UDim2.new(0.5, 0, 0, 64), UDim2.fromOffset(320, 104))
+	tr.Visible = false
+	local title = label(tr, "WHEELIE", 14, Enum.Font.GothamBold, Color3.fromRGB(255, 200, 70), nil, UDim2.fromOffset(0, 8))
+	local timeL = label(tr, "0.0 s", 30, Enum.Font.GothamBlack, nil, nil, UDim2.fromOffset(0, 24))
+	local track = bar(tr, Color3.fromRGB(45, 50, 58), 0.06, 0.88, 64, 10)
+	local sweet = bar(track, Color3.fromRGB(70, 200, 110), 0.6, 0.2, 0, 10)
+	local over = bar(track, Color3.fromRGB(230, 70, 60), 1 / 1.2, 1 - 1 / 1.2, 0, 10)
+	local marker = bar(track, Color3.new(1, 1, 1), 0, 0, -4, 18)
+	marker.Size = UDim2.fromOffset(4, 18)
+	marker.AnchorPoint = Vector2.new(0.5, 0)
+	local best = label(tr, "", 12, Enum.Font.GothamBold, Color3.fromRGB(160, 168, 180), nil, UDim2.fromOffset(0, 82))
+
+	-- big message, middle
+	local msg = label(gui, "", 44, Enum.Font.GothamBlack, nil, Vector2.new(0.5, 0.5), UDim2.new(0.5, 0, 0.35, 0), UDim2.new(1, 0, 0, 50))
+	local stroke = Instance.new("UIStroke")
+	stroke.Thickness = 3
+	stroke.Parent = msg
+	msg.TextTransparency = 1
+	stroke.Transparency = 1
+
+	-- controls, bottom centre (fades out)
+	local hintText = if game:GetService("UserInputService").TouchEnabled
+		then "Wheelie / Stoppie buttons · stick to ride · Jump to get off"
+		else "W / S  throttle · brake     A / D  steer     E  wheelie     Q  stoppie / stand     Space  get off"
+	local hint = label(gui, hintText, 14, Enum.Font.GothamBold, nil, Vector2.new(0.5, 1), UDim2.new(0.5, 0, 1, -22), UDim2.new(0.9, 0, 0, 16))
+	local hintStroke = Instance.new("UIStroke")
+	hintStroke.Thickness = 1.5
+	hintStroke.Parent = hint
+
+	gui.Parent = player:WaitForChild("PlayerGui")
+
+	local hud = { gui = gui, bestW = 0, bestS = 0, hintT = 8, shownT = 0, kind = nil, t = 0, dist = 0 }
+	function hud:message(text)
+		local TweenService = game:GetService("TweenService")
+		msg.Text = text
+		msg.TextTransparency = 0
+		stroke.Transparency = 0
+		local fade = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out, 0, false, 1.6)
+		TweenService:Create(msg, fade, { TextTransparency = 1 }):Play()
+		TweenService:Create(stroke, fade, { Transparency = 1 }):Play()
+	end
+	-- off the bike: hide the gauges now, keep a crash message up for a moment
+	function hud:close(linger: boolean)
+		sp.Visible = false
+		tr.Visible = false
+		hint.Visible = false
+		if linger then
+			task.delay(2.4, function()
+				gui:Destroy()
+			end)
+		else
+			gui:Destroy()
+		end
+	end
+	function hud:update(dt, out, throttle, brake)
+		speed.Text = tostring(math.floor(math.abs(out.speed) * 1.008 + 0.5))
+		local p = if brake > 0 then -brake else throttle
+		power.Size = UDim2.new(math.abs(p), 0, 1, 0)
+		power.BackgroundColor3 = if p < 0 then Color3.fromRGB(235, 80, 70) else Color3.fromRGB(80, 220, 120)
+
+		-- trick timer
+		local kind = if out.wheelie then "wheelie" elseif out.stoppie then "stoppie" else nil
+		if kind then
+			if self.kind ~= kind then
+				self.kind, self.t, self.dist = kind, 0, 0
+			end
+			self.t += dt
+			self.dist += math.abs(out.speed) * dt * STUD_M
+			self.shownT = 2
+		elseif self.kind then
+			-- just ended: keep the result up for a moment, record the best
+			if self.kind == "wheelie" and self.t > self.bestW then
+				self.bestW = self.t
+				if self.t > 1.5 then
+					self:message(string.format("Best wheelie! %.1f s", self.t))
+				end
+			elseif self.kind == "stoppie" and self.t > self.bestS then
+				self.bestS = self.t
+			end
+			self.kind = nil
+		end
+		self.shownT -= dt
+		tr.Visible = self.shownT > 0 and self.t > 0.25
+		if tr.Visible then
+			local isW = (kind or self.lastKind) ~= "stoppie"
+			title.Text = if isW then "WHEELIE" else "STOPPIE"
+			timeL.Text = string.format("%.1f s  ·  %d m", self.t, math.floor(self.dist + 0.5))
+			local bestT = if isW then self.bestW else self.bestS
+			best.Text = if bestT > 0 then string.format("BEST  %.1f s", bestT) else ""
+			-- balance bar: 0 = flat, 1/1.2 = the balance point, red = past it
+			local f
+			if isW then
+				local bal = math.max(out.balanceAngle, 0.2)
+				f = out.wheelieAngle / bal
+				sweet.Position = UDim2.new((bal - math.rad(Config.WheelieSweetSpot + 6)) / bal / 1.2, 0, 0, 0)
+				sweet.Size = UDim2.new(math.rad(Config.WheelieSweetSpot + 5) / bal / 1.2, 0, 1, 0)
+			else
+				f = out.stoppieAngle / math.rad(Config.StoppieAngle)
+				sweet.Position = UDim2.new(0.6, 0, 0, 0)
+				sweet.Size = UDim2.new(0.25, 0, 1, 0)
+			end
+			marker.Position = UDim2.new(math.clamp(f / 1.2, 0, 1), 0, 0, -4)
+			marker.BackgroundColor3 = if f > 1 then Color3.fromRGB(255, 90, 80) else Color3.new(1, 1, 1)
+		end
+		if kind then
+			self.lastKind = kind
+		end
+
+		-- controls hint fades out
+		self.hintT -= dt
+		local h = math.clamp(self.hintT / 1.5, 0, 1)
+		hint.TextTransparency = 1 - h
+		hintStroke.Transparency = 1 - h * 0.6
+	end
+	return hud
+end
+
 local function runBike(bike: Model)
 	if not bike:GetAttribute("RideKitReady") then
 		bike:GetAttributeChangedSignal("RideKitReady"):Wait()
@@ -444,33 +1289,38 @@ local function runBike(bike: Model)
 	local frontSlideMotor = steerPivot:WaitForChild("RideKit_FrontSlideMotor") :: Motor6D
 	local frontHubMotor = frontSlider:WaitForChild("RideKit_FrontHubMotor") :: Motor6D
 	local rearHubMotor = swingPivot:WaitForChild("RideKit_RearHubMotor") :: Motor6D
+	local remote = bike:WaitForChild("RideKit_Remote", 10) :: RemoteEvent?
 
 	local physics = Physics.new(bike, Config)
 	local radF = bike:GetAttribute("RK_RadiusF") :: number
 	local radR = bike:GetAttribute("RK_RadiusR") :: number
 	local armLen = bike:GetAttribute("RK_SwingArm") :: number
 	local travel = Config.SuspensionTravel
-	local gripL = bike:GetAttribute("RK_GripL") :: Vector3
-	local gripR = bike:GetAttribute("RK_GripR") :: Vector3
-	local pegL = bike:GetAttribute("RK_PegL") :: Vector3
-	local pegR = bike:GetAttribute("RK_PegR") :: Vector3
 
-	-- wheelie input (keyboard / gamepad / mobile button while riding)
-	local wheelieHeld = false
-	local ACTION = "RideKitWheelie_" .. bike.Name .. "_" .. tostring(math.random(1, 1e9))
-	local function onWheelie(_, state)
-		wheelieHeld = state == Enum.UserInputState.Begin
+	-- E = wheelie / lean back, Q = stoppie / stand up (keyboard, gamepad, mobile buttons)
+	local leanBack, leanForward = 0, 0
+	local id = bike.Name .. "_" .. tostring(math.random(1, 1e9))
+	local ACT_BACK, ACT_FWD = "RideKitWheelie_" .. id, "RideKitStoppie_" .. id
+	local function onBack(_, state)
+		leanBack = if state == Enum.UserInputState.Begin or state == Enum.UserInputState.Change then 1 else 0
+		return Enum.ContextActionResult.Sink
+	end
+	local function onFwd(_, state)
+		leanForward = if state == Enum.UserInputState.Begin or state == Enum.UserInputState.Change then 1 else 0
 		return Enum.ContextActionResult.Sink
 	end
 
 	local wasDriver = false
+	local hud = nil
+	local crashSent = false
 	local spinF, spinR, steerVis = 0, 0, 0
 	local riderJoints, riderChar = nil, nil
 	local tookOver = false
 	local animClips = AnimPlayer.prepare(AnimData)
-	local animWeights = { tuck = 0, brake = 0, leanR = 0, leanL = 0, wheelie = 0 }
+	local clipSteer = if animClips.LeanRight then math.max(math.abs(animClips.LeanRight.steer or 0.24), 0.05) else 0.24
+	local animWeights = {}
 	local animTime = 0
-	local poseBounce = 0
+	local offF, offR = 0, 0
 
 	-- motor / wind sounds and brake lights already in the model (played locally)
 	local engineSound, windSound = nil, nil
@@ -499,67 +1349,153 @@ local function runBike(bike: Model)
 			end
 		end
 	end
-	local offF, offR = 0, 0
+
+	local function bind(on: boolean)
+		if on then
+			local prio = Enum.ContextActionPriority.High.Value
+			ContextActionService:BindActionAtPriority(ACT_BACK, onBack, true, prio, table.unpack(Config.WheelieKeys))
+			ContextActionService:BindActionAtPriority(ACT_FWD, onFwd, true, prio, table.unpack(Config.StoppieKeys))
+			ContextActionService:SetTitle(ACT_BACK, "Wheelie")
+			ContextActionService:SetTitle(ACT_FWD, "Stoppie")
+			ContextActionService:SetPosition(ACT_BACK, UDim2.new(1, -190, 1, -95))
+			ContextActionService:SetPosition(ACT_FWD, UDim2.new(1, -190, 1, -165))
+		else
+			ContextActionService:UnbindAction(ACT_BACK)
+			ContextActionService:UnbindAction(ACT_FWD)
+			leanBack, leanForward = 0, 0
+		end
+	end
+
+	-- thrown off: the rider keeps the bike's speed and tumbles; the bike falls over
+	local function crashOff(char: Model, reason: string?)
+		crashSent = true
+		if remote then
+			remote:FireServer("crash")
+		end
+		local hum = char:FindFirstChildOfClass("Humanoid")
+		local root = char:FindFirstChild("HumanoidRootPart") :: BasePart?
+		local v = chassis.AssemblyLinearVelocity
+		if hud then
+			hud:message(CRASH_TEXT[reason or ""] or "Crashed!")
+		end
+		if hum then
+			hum.Sit = false
+			hum.Jump = true
+		end
+		task.delay(0.05, function()
+			if root and root.Parent then
+				root.AssemblyLinearVelocity = v * 0.85 + Vector3.new(0, 18, 0)
+			end
+			if hum and hum.Parent then
+				hum:ChangeState(Enum.HumanoidStateType.FallingDown)
+			end
+		end)
+	end
 
 	local conn
 	conn = RunService.Stepped:Connect(function(_, dt)
 		if not bike:IsDescendantOf(workspace) then
 			conn:Disconnect()
+			if hud then
+				hud:close(false)
+			end
 			return
 		end
 		local occupant = seat.Occupant
 		local char = occupant and occupant.Parent
 		local isDriver = char ~= nil and char == player.Character
 
-		-- input binding follows the driver role
+		-- the driver role: controls, HUD, fresh physics state
 		if isDriver ~= wasDriver then
 			wasDriver = isDriver
-			if isDriver then
-				physics:resetHeading()
-				ContextActionService:BindAction(ACTION, onWheelie, true, table.unpack(Config.WheelieKeys))
-				ContextActionService:SetTitle(ACTION, "Wheelie")
-			else
-				ContextActionService:UnbindAction(ACTION)
-				wheelieHeld = false
+			physics:reset()
+			bind(isDriver)
+			if hud then
+				hud:close(crashSent)
+				hud = nil
+			end
+			crashSent = false
+			if isDriver and Config.ShowHud then
+				hud = makeHud(player)
 			end
 		end
 
 		physics:setIgnore(if char then { bike, char } else { bike })
-		local throttle = if char then seat.ThrottleFloat else 0
+		local tf = if char then seat.ThrottleFloat else 0
+		local throttle, brake = math.max(tf, 0), math.max(-tf, 0)
 		local steer = if char then seat.SteerFloat else 0
 
+		local out = nil
 		if isDriver and not chassis.Anchored then
-			physics:step(dt, throttle, steer, wheelieHeld, true)
+			out = physics:step(dt, {
+				driver = true,
+				throttle = throttle,
+				brake = brake,
+				steer = steer,
+				leanBack = leanBack,
+				leanForward = leanForward,
+			})
+			if out.crashed and not crashSent and char then
+				crashOff(char, out.crashReason)
+			end
 		end
 
-		-- visuals for everyone: spin, steer, suspension
-		local vF = chassis.AssemblyLinearVelocity:Dot(chassis.CFrame.LookVector)
-		spinF = (spinF + vF / radF * dt) % (2 * math.pi)
-		spinR = (spinR + vF / radR * dt) % (2 * math.pi)
+		-- visuals for everyone: spin, steer, suspension -------------------------------------------
+		local cf = chassis.CFrame
+		local vF = chassis.AssemblyLinearVelocity:Dot(cf.LookVector)
 		local speedFrac = math.clamp(math.abs(vF) / Config.MaxSpeed, 0, 1)
-		local steerTarget = steer * math.rad(Config.MaxSteerAngle) * (1 - 0.4 * speedFrac)
-		steerVis += (steerTarget - steerVis) * (1 - math.exp(-12 * dt))
-		local compF, hitF = physics:probe(1)
-		local compR, hitR = physics:probe(2)
-		-- wheel travel shown on the forks / swingarm, lightly smoothed
+		local compF, compR, hitF, hitR
+		if out then
+			compF, compR = out.comp[1], out.comp[2]
+			hitF, hitR = out.contact[1], out.contact[2]
+		else
+			local c1, h1 = physics:probe(1)
+			local c2, h2 = physics:probe(2)
+			compF, compR, hitF, hitR = c1, c2, h1 ~= nil, h2 ~= nil
+		end
+		-- wheels: roll with the ground, spin up when the rear lights up, stop when locked
+		local rollF, rollR = vF / radF, vF / radR
+		if out then
+			if out.slip[2] > 0.05 and throttle > 0.2 then
+				rollR += out.slip[2] * 40
+			end
+			if out.braking then
+				rollF *= 1 - out.slip[1]
+				rollR *= 1 - out.slip[2]
+			end
+		end
+		if not hitR and throttle > 0.2 then
+			rollR = math.max(rollR, 40 * throttle) -- in the air the throttle spins it up
+		end
+		spinF = (spinF + rollF * dt) % (2 * math.pi)
+		spinR = (spinR + rollR * dt) % (2 * math.pi)
+		local steerTarget = if out then out.steerAngle else steer * Physics.lockAt(Config, physics.wheelbase, vF)
+		steerVis += (steerTarget - steerVis) * (1 - math.exp(-20 * dt))
 		local smooth = 1 - math.exp(-30 * dt)
-		offF += (math.clamp(compF - travel * 0.5, -travel * 0.5, travel * 0.8) - offF) * smooth
-		offR += (math.clamp(compR - travel * 0.5, -travel * 0.5, travel * 0.8) - offR) * smooth
+		local function shown(c, hit)
+			return if hit then math.clamp(c - travel * 0.5, -travel * 0.5, travel * 0.6) else -travel * 0.5
+		end
+		offF += (shown(compF, hitF) - offF) * smooth
+		offR += (shown(compR, hitR) - offR) * smooth
 		steerMotor.Transform = CFrame.Angles(0, -steerVis, 0)
 		frontSlideMotor.Transform = CFrame.new(0, offF, 0) -- fork lowers + wheel slide up the fork
 		frontHubMotor.Transform = CFrame.Angles(-spinF, 0, 0)
 		swingMotor.Transform = CFrame.Angles(-math.asin(math.clamp(offR / armLen, -0.5, 0.5)), 0, 0)
 		rearHubMotor.Transform = CFrame.Angles(-spinR, 0, 0)
 
-		-- sounds and brake light
-		local braking = char ~= nil and throttle < -0.1 and vF > 1
+		if hud and out then
+			hud:update(dt, out, throttle, brake)
+		end
+
+		-- sounds and brake light -------------------------------------------------------------------
+		local braking = char ~= nil and brake > 0.1 and vF > 1
 		for _, l in ipairs(brakeLights) do
 			l.Enabled = braking
 		end
 		if engineSound then
-			local level = math.max(speedFrac, math.abs(throttle) * 0.6)
-			engineSound.PlaybackSpeed = 0.6 + 1.1 * speedFrac + 0.15 * math.max(throttle, 0)
-			engineSound.Volume = if char then engineVol * (0.35 + 0.65 * level) else 0
+			local rev = math.max(speedFrac, if hitR then 0 else throttle * 0.9)
+			engineSound.PlaybackSpeed = 0.6 + 1.1 * rev + 0.15 * throttle
+			engineSound.Volume = if char then engineVol * (0.35 + 0.65 * math.max(rev, throttle * 0.6)) else 0
 			if char and not engineSound.IsPlaying then
 				engineSound:Play()
 			end
@@ -571,7 +1507,7 @@ local function runBike(bike: Model)
 			end
 		end
 
-		-- rider animation (made in Blender, see blender/anim): blend the clips by riding state
+		-- rider animation (keyframed in Blender, see blender/anim) ----------------------------------
 		if char ~= riderChar then
 			if riderJoints then
 				AnimPlayer.clear(riderJoints)
@@ -586,29 +1522,46 @@ local function runBike(bike: Model)
 				AnimPlayer.takeOver(char)
 			end
 			animTime = 0
+			table.clear(animWeights)
 		end
 		if riderJoints and char then
 			AnimPlayer.silence(char)
 			animTime += dt
-			-- wheelie = nose higher than the ground slope under the wheels
-			local pitch = math.asin(math.clamp(chassis.CFrame.LookVector.Y, -1, 1))
-			local slope = 0
-			if hitF and hitR then
-				local d = hitF.Position - hitR.Position
-				slope = math.asin(math.clamp(d.Y / math.max(d.Magnitude, 0.01), -1, 1))
+			-- what the bike is doing: from the physics for the rider, from the bike for everyone else
+			local lean, wheelie, stoppie, airborne, standing
+			if out then
+				lean = out.lean
+				wheelie = if out.wheelie then math.clamp(out.wheelieAngle / math.max(out.balanceAngle, 0.3) * 1.2, 0, 1) else 0
+				stoppie = if out.stoppie then math.clamp(out.stoppieAngle / math.rad(Config.StoppieAngle), 0, 1) else 0
+				airborne = out.airborne and out.airTime > 0.08
+				standing = out.standing and math.abs(vF) > 3
+			else
+				local up = cf.UpVector
+				local flatFwd = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+				local flatRight = if flatFwd.Magnitude > 0.05 then flatFwd.Unit:Cross(Vector3.yAxis) else cf.RightVector
+				lean = math.atan2(up:Dot(flatRight), up.Y)
+				local pitch = math.asin(math.clamp(cf.LookVector.Y, -1, 1))
+				wheelie = if hitR and not hitF then math.clamp((pitch - 0.08) / 0.6, 0, 1) else 0
+				stoppie = if hitF and not hitR then math.clamp((-pitch - 0.05) / 0.3, 0, 1) else 0
+				airborne = not hitF and not hitR
+				standing = false
 			end
-			local wheelieAngle = math.max(pitch - slope, 0)
-			local moving = math.clamp(math.abs(vF) / 12, 0, 1)
+			local moving = math.abs(vF) > 2
+			local maxLean = math.rad(Config.MaxLean)
 			local target = {
-				tuck = math.max(throttle, 0) * math.clamp(math.abs(vF) / 25, 0.3, 1),
-				brake = if throttle < -0.1 and vF > 1 then -throttle else 0,
-				leanR = math.max(steer, 0) * math.max(moving, 0.5),
-				leanL = math.max(-steer, 0) * math.max(moving, 0.5),
-				wheelie = math.clamp((wheelieAngle - 0.06) / 0.3, 0, 1),
+				tuck = if wheelie > 0.1 then 0 else throttle * math.clamp(math.abs(vF) / 40, 0.25, 1),
+				brake = if braking and stoppie < 0.1 then brake else 0,
+				stand = if airborne or standing then 1 else 0,
+				hangR = if moving then math.clamp(lean / maxLean, 0, 1) else 0,
+				hangL = if moving then math.clamp(-lean / maxLean, 0, 1) else 0,
+				leanR = math.clamp(steerVis / clipSteer, 0, 1),
+				leanL = math.clamp(-steerVis / clipSteer, 0, 1),
+				wheelie = wheelie,
+				stoppie = stoppie,
 			}
 			local a = 1 - math.exp(-Config.AnimBlendSpeed * dt)
 			for k, v in pairs(target) do
-				animWeights[k] += (v - animWeights[k]) * a
+				animWeights[k] = (animWeights[k] or 0) + (v - (animWeights[k] or 0)) * a
 			end
 			AnimPlayer.apply(riderJoints, AnimPlayer.pose(animClips, animTime, animWeights))
 		end

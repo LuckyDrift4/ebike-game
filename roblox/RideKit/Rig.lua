@@ -236,6 +236,17 @@ function Rig.riderSetup(d, cfg)
 	}
 end
 
+-- where RideKit_Chassis goes (the bike + rider's centre of mass) and its size
+function Rig.chassisCenter(frontPos: Vector3, rearPos: Vector3, radR: number, fwd: Vector3, up: Vector3, cfg): Vector3
+	local flat = frontPos - rearPos
+	local wheelbase = Vector3.new(flat.X, 0, flat.Z).Magnitude
+	return (frontPos + rearPos) / 2 + up * (radR * cfg.ComHeight) - fwd * (wheelbase * cfg.ComBack)
+end
+
+function Rig.chassisSize(wheelbase: number): Vector3
+	return Vector3.new(1.2, 1.6, wheelbase * 1.15)
+end
+
 -- -------------------------------------------------------------------------------
 -- Instance helpers (Roblox only)
 -- -------------------------------------------------------------------------------
@@ -349,29 +360,42 @@ function Rig.build(bike: Model, cfg)
 		end
 	end
 
-	local center = (front.Position + rear.Position) / 2 + up * (radR * 0.7)
+	local center = (front.Position + rear.Position) / 2 + up * (radR * 0.7) -- reference for the rider fit
+	-- RideKit_Chassis carries all the mass (bike + rider): centred on the centre of mass,
+	-- long enough to have a real bike's pitch inertia, and it's what hits walls
+	local com = Rig.chassisCenter(front.Position, rear.Position, radR, fwd, up, cfg)
 	local chassis = Instance.new("Part")
 	chassis.Name = "RideKit_Chassis"
-	chassis.Size = Vector3.new(1.1, 1.1, wheelbase * 0.75)
-	chassis.CFrame = CFrame.lookAt(center, center + fwd)
+	chassis.Size = Rig.chassisSize(wheelbase)
+	chassis.CFrame = CFrame.lookAt(com, com + fwd)
 	chassis.Transparency = 1
 	chassis.CanCollide = true
 	chassis.CanQuery = false
-	chassis.CustomPhysicalProperties = PhysicalProperties.new(cfg.ChassisDensity, 0, 0, 1, 1)
+	chassis.CanTouch = false
+	chassis.RootPriority = 127
+	chassis.CustomPhysicalProperties = PhysicalProperties.new(cfg.ChassisDensity, 0.5, 0, 1, 1)
 	chassis.Anchored = true
 	chassis.Parent = bike
 
-	local att = Instance.new("Attachment")
-	att.Name = "RideKit_Att"
-	att.Parent = chassis
-	local align = Instance.new("AlignOrientation")
-	align.Name = "RideKit_Align"
-	align.Mode = Enum.OrientationAlignmentMode.OneAttachment
-	align.Attachment0 = att
-	align.Responsiveness = cfg.AlignResponsiveness
-	align.MaxTorque = math.huge
-	align.CFrame = chassis.CFrame.Rotation
-	align.Parent = chassis
+	-- invisible guards inside each wheel: they only touch the ground when the suspension
+	-- bottoms out or the bike falls over, and they stop the wheels going through walls
+	for _, w in ipairs({ front, rear }) do
+		local r = math.max(w.Size.Y, w.Size.Z) / 2
+		local guard = Instance.new("Part")
+		guard.Name = "RideKit_WheelGuard"
+		guard.Shape = Enum.PartType.Cylinder
+		guard.Size = Vector3.new(0.3, r * 1.4, r * 1.4)
+		guard.CFrame = CFrame.fromMatrix(w.Position, right, up)
+		guard.Transparency = 1
+		guard.CanCollide = true
+		guard.CanQuery = false
+		guard.CanTouch = false
+		guard.Massless = true
+		guard.CustomPhysicalProperties = PhysicalProperties.new(0.1, 0.3, 0, 1, 1)
+		guard.Anchored = false
+		guard.Parent = bike
+		weld(chassis, guard)
+	end
 
 	local steerPivot = helper("RideKit_SteerPivot", CFrame.fromMatrix(steerPos, right, steerAxis), bike)
 	local frontSlider = helper("RideKit_FrontSlider", CFrame.fromMatrix(front.Position, right, steerAxis), bike)
@@ -418,7 +442,7 @@ function Rig.build(bike: Model, cfg)
 	local barWidth = 0
 	local bodyParts = {}
 	for _, part in ipairs(bike:GetDescendants()) do
-		if not part:IsA("BasePart") or ours[part] then
+		if not part:IsA("BasePart") or ours[part] or part.Name == "RideKit_WheelGuard" then
 			continue
 		end
 		local group = Rig.classify({
@@ -521,7 +545,7 @@ function Rig.build(bike: Model, cfg)
 			.. `Grips from "{if bar then bar.Name else "(guessed)"}", seat "{if seatRef then seatRef.name else "(guessed)"}", `
 			.. `rider {string.format("%.2f", rider.forward)} forward`
 	)
-	return { chassis = chassis, seat = seat, prompt = prompt, align = align }
+	return { chassis = chassis, seat = seat, prompt = prompt }
 end
 
 return Rig

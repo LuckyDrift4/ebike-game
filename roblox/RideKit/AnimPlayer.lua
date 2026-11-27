@@ -1,8 +1,8 @@
 -- RideKit.AnimPlayer: plays the R6 riding animations made in Blender
 -- (blender/anim/ride_anims.blend -> roblox/anim/ride_anims.json -> AnimData).
 -- No pose is computed here: it samples the Blender keyframes, blends the clips
--- (ride + tuck / brake / lean left / lean right / wheelie) by riding state, and
--- writes the result to the rider's Motor6D.Transform on every client.
+-- by riding state (weights from the bike's physics), and writes the result to
+-- the rider's Motor6D.Transform on every client.
 
 local AnimPlayer = {}
 
@@ -26,7 +26,10 @@ function AnimPlayer.prepare(data)
 			local pose = {}
 			for _, part in ipairs(PARTS) do
 				local q = k.pose[part]
-				pose[part] = CFrame.new(0, 0, 0, q[1], q[2], q[3], q[4])
+				local p = k.pos and k.pos[part] -- the torso can move too (standing up)
+				pose[part] = if p
+					then CFrame.new(p[1], p[2], p[3], q[1], q[2], q[3], q[4])
+					else CFrame.new(0, 0, 0, q[1], q[2], q[3], q[4])
 			end
 			table.insert(frames, { t = k.t, pose = pose })
 		end
@@ -69,17 +72,31 @@ function AnimPlayer.blend(base, over, w: number)
 	return out
 end
 
+-- clips layered over Ride, in this order (later ones win), and the weight that drives each
+AnimPlayer.LAYERS = {
+	{ "Tuck", "tuck" }, -- head down on the throttle
+	{ "Brake", "brake" }, -- weight back on the brakes
+	{ "Stand", "stand" }, -- up on the pegs: jumps, bumps, Q
+	{ "HangRight", "hangR" }, -- body into the corner as the bike leans
+	{ "HangLeft", "hangL" },
+	{ "LeanRight", "leanR" }, -- bars turned (follows the steering)
+	{ "LeanLeft", "leanL" },
+	{ "Wheelie", "wheelie" }, -- sat back, arms straight
+	{ "Stoppie", "stoppie" }, -- weight over the front
+}
+
 --[[ Full riding pose.
   clips  : from prepare
   t      : time in seconds (for the looping ride clip)
-  w      : smoothed weights { tuck, brake, leanR, leanL, wheelie } (0..1) ]]
+  w      : smoothed weights by name (see LAYERS), 0..1; clips missing from AnimData are skipped ]]
 function AnimPlayer.pose(clips, t: number, w)
 	local pose = AnimPlayer.sample(clips.Ride, t)
-	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.Tuck, t), w.tuck)
-	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.Brake, t), w.brake)
-	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.LeanRight, t), w.leanR)
-	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.LeanLeft, t), w.leanL)
-	pose = AnimPlayer.blend(pose, AnimPlayer.sample(clips.Wheelie, t), w.wheelie)
+	for _, layer in ipairs(AnimPlayer.LAYERS) do
+		local clip, weight = clips[layer[1]], w[layer[2]]
+		if clip and weight and weight > 1e-3 then
+			pose = AnimPlayer.blend(pose, AnimPlayer.sample(clip, t), weight)
+		end
+	end
 	return pose
 end
 
