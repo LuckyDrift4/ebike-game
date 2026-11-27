@@ -83,7 +83,10 @@
 - The legs hang straight down from the hips, tilted 14° forward
   (`LEG_ANGLE` in `make_ride_anims.py`), not aimed at the pegs. The user
   circled the legs in their photo and said "only fix the leg, all other is
-  perfect". `anim_test` checks this angle.
+  perfect".
+- Seen from behind, the legs spread out so the feet sit over the pegs, either
+  side of the bike (`LEG_SPREAD`), not through its frame. `anim_test` checks
+  both the angle and the spread.
   There's no tuck, no standing and no hanging into corners. The clips are:
   - Ride.
   - Brake (also used in stoppies).

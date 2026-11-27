@@ -263,18 +263,28 @@ def aim_points(steer_angle, q_torso, t=None):
     rot = spv @ Matrix.Rotation(-steer_angle, 4, "Y") @ spv.inverted()
     gR = (rot @ Vector(REF["gripR"]).to_4d()).to_3d()
     gL = (rot @ Vector(REF["gripL"]).to_4d()).to_3d()
-    # legs: straight down from the hips, a little forward (the user's reference photo)
+    # legs: straight down from the hips, a little forward (the user's reference photo), and
+    # out to the sides so the feet sit over the pegs - either side of the bike, not through it.
+    # (The foot is 0.5 inboard of the leg's joint axis, so the axis aims 0.5 further out.)
     down = -UP * math.cos(LEG_ANGLE) + FWD * math.sin(LEG_ANGLE)
+    centre = CHASSIS.translation
+
+    def leg_aim(hip, peg, side):
+        aim = hip + down * 2.0
+        out = (Vector(peg) - centre).dot(RIGHT) + side * (0.5 + LEG_SPREAD)  # wanted, across the bike
+        return aim + RIGHT * (out - (aim - centre).dot(RIGHT))
+
     hR = (torso @ R6["Right Leg"][1]).translation
     hL = (torso @ R6["Left Leg"][1]).translation
     return {"Right Arm": gR - rt * 0.5, "Left Arm": gL + rt * 0.5,
-            "Right Leg": hR + down * 2.0, "Left Leg": hL + down * 2.0,
+            "Right Leg": leg_aim(hR, REF["pegR"], 1), "Left Leg": leg_aim(hL, REF["pegL"], -1),
             "gripR": gR, "gripL": gL}
 
 
 HAND_REACH = math.hypot(0.5, 1.5)  # shoulder joint -> hand centre on an R6 arm
 LEG_REACH = math.hypot(0.5, 2.0)  # hip joint -> foot centre on an R6 leg
 LEG_ANGLE = math.radians(14)  # legs hang straight down from the hips, tilted this far forward
+LEG_SPREAD = 0.1  # feet this much further out than the pegs (studs), clear of the bike
 
 
 def best_lean(lean0, steer_angle, roll=0.0, twist0=0.0, lean_range=(-0.6, 1.0), w_lean=0.15):

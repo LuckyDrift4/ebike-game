@@ -53,10 +53,15 @@ local function measure(pose, steer)
 		local d = -leg.UpVector -- the leg hangs along its -Y
 		return math.deg(math.atan2(d:Dot(chassis.LookVector), -d:Dot(chassis.UpVector)))
 	end
+	-- and either side of the bike, not through it: each foot's centre well out from the middle
+	local function out(p)
+		return (p - chassis.Position):Dot(chassis.RightVector)
+	end
 	return math.max((handR - gR).Magnitude, (handL - gL).Magnitude),
 		math.max(math.abs(legAngle(b["Right Leg"]) - 14), math.abs(legAngle(b["Left Leg"]) - 14)),
 		b.Head.LookVector:Dot(chassis.LookVector),
-		legAngle(b["Right Leg"])
+		legAngle(b["Right Leg"]),
+		math.min(out(footR), -out(footL))
 end
 
 local clips = AnimPlayer.prepare(AnimData)
@@ -66,14 +71,16 @@ for _, name in ipairs({ "Ride", "Brake", "LeanRight", "LeanLeft", "Wheelie" }) d
 	if not clip then
 		continue
 	end
-	local worstH, worstF, minLook, legA = 0, 0, 1, 0
+	local worstH, worstF, minLook, legA, minOut = 0, 0, 1, 0, math.huge
 	for t = 0, clip.length, 0.05 do
-		local h, f, look, a = measure(AnimPlayer.sample(clip, t), clip.steer)
+		local h, f, look, a, o = measure(AnimPlayer.sample(clip, t), clip.steer)
 		worstH, worstF, minLook, legA = math.max(worstH, h), math.max(worstF, f), math.min(minLook, look), a
+		minOut = math.min(minOut, o)
 	end
-	print(string.format("%-9s hands->grips worst %.3f  legs %.0f deg forward of straight down (worst off 14: %.1f)  head·forward min %+.2f", name, worstH, legA, worstF, minLook))
+	print(string.format("%-9s hands->grips worst %.3f  legs %.0f deg forward (worst off 14: %.1f), feet %.2f out  head·forward min %+.2f", name, worstH, legA, worstF, minOut, minLook))
 	check(worstH < 0.12, name .. ": hands on the grips")
 	check(worstF < 5, name .. ": legs straight down, a little forward")
+	check(minOut > 0.8, name .. ": feet either side of the bike")
 	check(minLook > (if name == "Wheelie" then 0.4 else 0.6), name .. ": looking forward")
 end
 -- blends the client makes while riding straight (bars straight)
